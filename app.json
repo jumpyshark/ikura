@@ -2,12 +2,19 @@
   "expo": {
     "name": "ReceiptLog",
     "slug": "receiptlog",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "ios": { "supportsTablet": true, "bundleIdentifier": "com.jumpyshark.receiptlog" },
-    "android": { "package": "com.jumpyshark.receiptlog" },
-    "web": { "bundler": "metro" },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jumpyshark.receiptlog"
+    },
+    "android": {
+      "package": "com.jumpyshark.receiptlog"
+    },
+    "web": {
+      "bundler": "metro"
+    },
     "plugins": [
       [
         "expo-image-picker",
@@ -16,6 +23,7 @@
           "cameraPermission": "レシートを撮影するためにカメラを使用します。"
         }
       ]
-    ]
+    ],
+    "icon": "./assets/icon.png"
   }
 }
