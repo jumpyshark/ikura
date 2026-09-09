@@ -5,39 +5,59 @@ on:
 
 jobs:
   build:
+    name: Build unsigned IPA
     runs-on: macos-15
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - name: Select latest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Show Xcode and Swift versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
+      - name: Install JavaScript dependencies
         run: npm ci
 
-      - name: Generate iOS project
-        run: npx expo prebuild --platform ios --non-interactive
+      - name: Generate native iOS project
+        run: CI=1 npx expo prebuild --platform ios
 
-      - name: Install CocoaPods
+      - name: Install CocoaPods dependencies
         run: npx pod-install
 
-      - name: Build unsigned device app
+      - name: Build unsigned iOS app
         shell: bash
         run: |
           WORKSPACE_PATH="$(find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)"
+
+          if [ -z "$WORKSPACE_PATH" ]; then
+            echo "Xcode workspace was not found"
+            exit 1
+          fi
+
           SCHEME_NAME="$(basename "$WORKSPACE_PATH" .xcworkspace)"
+
+          echo "Workspace: $WORKSPACE_PATH"
+          echo "Scheme: $SCHEME_NAME"
 
           xcodebuild \
             -workspace "$WORKSPACE_PATH" \
             -scheme "$SCHEME_NAME" \
             -configuration Release \
             -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
+            -destination "generic/platform=iOS" \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -49,17 +69,27 @@ jobs:
           APP_PATH="$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -print -quit)"
 
           if [ -z "$APP_PATH" ]; then
-            echo "iOS app was not found"
+            echo "Compiled iOS app was not found"
             exit 1
           fi
 
-          mkdir Payload
-          cp -R "$APP_PATH" Payload/
-          ditto -c -k --sequesterRsrc --keepParent Payload ReceiptLog-unsigned.ipa
+          echo "Packaging: $APP_PATH"
 
-      - name: Upload IPA
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+
+          ditto \
+            -c \
+            -k \
+            --sequesterRsrc \
+            --keepParent \
+            Payload \
+            ReceiptLog-unsigned.ipa
+
+      - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
           name: ReceiptLog-unsigned-ios
           path: ReceiptLog-unsigned.ipa
+          if-no-files-found: error
           retention-days: 14
