@@ -13,13 +13,34 @@ React Native + Expoで開発する、OCR中心の支出管理アプリです。�
 ## 現在の機能
 
 - カメラ撮影または画像選択
-- OCR処理の差し替え口（現在はモック）
+- Android: Google ML Kit日本語OCR / iOS: Apple Vision OCR
+- 合計・日付・店舗名のルール解析と信頼度表示
 - 認識結果の必須確認・修正
-- 確認済み支出の端末内保存と履歴表示
+- 手入力、編集、削除、検索、カテゴリ絞り込み
+- 月別履歴、月間予算、残額、カテゴリ別グラフ
+- カテゴリ追加・削除と端末内保存
+- 低信頼度時だけ利用できる任意AIフォールバック
 
-## 次の段階
+## Webと実機
 
-1. Google ML Kitによる日本語OCR
-2. 店舗名・日付・合計金額のルール解析
-3. 信頼度が低い場合のみAIへフォールバック
-4. SQLite、カテゴリ集計、月別グラフ
+Web版では全画面、手入力、履歴、集計を確認できます。OCRはネイティブ機能のためExpo Goでは動かず、development buildが必要です。
+
+```sh
+npm install
+npm run web
+
+# 実機OCR用（Expoアカウントが必要）
+npx eas-cli login
+npx eas-cli build --profile development --platform android
+```
+
+## AIフォールバック
+
+AIは初期状態で無効です。APIキーをアプリへ埋め込まず、認証付きサーバーを用意して`.env`の`EXPO_PUBLIC_AI_FALLBACK_URL`へURLだけを設定します。信頼度75%未満のOCR結果だけが対象になり、AI利用後も確認画面を必ず通ります。
+
+## 今後の改善
+
+1. 実レシートのテストデータ追加と抽出ルール改善
+2. CSVエクスポート
+3. SQLiteへの保存層移行
+4. AIフォールバック用サーバー実装

@@ -1,13 +1,10 @@
-import type { ExpenseDraft } from '../types/expense';
+import { Platform } from 'react-native';
+import { extractTextFromImage, isSupported, TextRecognitionScript } from '@zhanziyang/expo-text-extractor';
+import { parseReceiptText } from './parser';
 
-// Milestone 1 stub. Replace this adapter with on-device ML Kit OCR.
-export async function extractExpense(_imageUri: string): Promise<ExpenseDraft> {
-  await new Promise((resolve) => setTimeout(resolve, 650));
-  return {
-    storeName: 'OCR result (edit me)',
-    date: new Date().toISOString().slice(0, 10),
-    amount: '',
-    category: 'その他',
-    sourceType: 'receipt',
-  };
+export async function extractExpense(imageUri: string) {
+  if (Platform.OS === 'web') throw new Error('OCRはAndroid/iOSのdevelopment buildで利用できます。');
+  if (!isSupported) throw new Error('この端末ではOCRを利用できません。');
+  const lines = await extractTextFromImage(imageUri, { script: TextRecognitionScript.JAPANESE, languages: ['ja-JP', 'en-US'] });
+  return parseReceiptText(lines);
 }
