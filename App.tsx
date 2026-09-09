@@ -22,6 +22,7 @@ export default function App() {
   const [month, setMonth] = useState(monthKey(new Date()));
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('すべて');
+  const [historyAll, setHistoryAll] = useState(true);
   const [draft, setDraft] = useState(blank());
   const [imageUri, setImageUri] = useState<string>();
   const [editingId, setEditingId] = useState<string>();
@@ -34,7 +35,7 @@ export default function App() {
   const initialize = () => Promise.all([loadExpenses(), loadSettings()]).then(([e, s]) => { setExpenses(e); setSettings(s); setReady(true); }).catch(() => Alert.alert('データを読み込めません', '保存済みデータを保護するため、再読み込みしてください。', [{text:'再試行', onPress:initialize}]));
   useEffect(() => { void initialize(); }, []);
   const monthly = useMemo(() => expenses.filter((e) => e.date.startsWith(month)), [expenses, month]);
-  const filtered = useMemo(() => monthly.filter((e) => (categoryFilter === 'すべて' || e.category === categoryFilter) && `${e.storeName} ${e.note} ${e.paymentMethod}`.toLowerCase().includes(query.toLowerCase())), [monthly, query, categoryFilter]);
+  const filtered = useMemo(() => (historyAll ? expenses : monthly).filter((e) => (categoryFilter === 'すべて' || e.category === categoryFilter) && `${e.storeName} ${e.note} ${e.paymentMethod}`.toLowerCase().includes(query.toLowerCase())), [expenses, monthly, historyAll, query, categoryFilter]);
   const total = monthly.reduce((sum, e) => sum + Number(e.amount), 0);
   const categories = settings.categories.map((name) => ({ name, value: monthly.filter((e) => e.category === name).reduce((sum, e) => sum + Number(e.amount), 0) })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value);
 
@@ -72,7 +73,7 @@ export default function App() {
     const item: Expense = { ...draft, id: editingId ?? Date.now().toString(), imageUri };
     const next = editingId ? expenses.map((e) => e.id === editingId ? item : e) : [item, ...expenses];
     busy.current = true; setSaving(true);
-    try { await persistExpenses(next); resetForm(); setQuery(''); setCategoryFilter('すべて'); setMonth(item.date.slice(0, 7)); setTab('history'); }
+    try { await persistExpenses(next); resetForm(); setQuery(''); setCategoryFilter('すべて'); setHistoryAll(true); setMonth(item.date.slice(0, 7)); setTab('history'); }
     catch { Alert.alert('保存できませんでした', '入力内容は残っています。もう一度保存してください。'); }
     finally { busy.current = false; setSaving(false); }
   };
@@ -86,7 +87,7 @@ export default function App() {
     <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
       {tab === 'home' && <Home total={total} budget={settings.monthlyBudget} count={monthly.length} categories={categories} setTab={setTab} />}
       {tab === 'add' && <Add draft={draft} setDraft={setDraft} imageUri={imageUri} processing={processing || saving} editing={Boolean(editingId)} categories={settings.categories} chooseImage={chooseImage} submit={submit} reset={resetForm} />}
-      {tab === 'history' && <History month={month} setMonth={setMonth} query={query} setQuery={setQuery} filter={categoryFilter} setFilter={setCategoryFilter} categories={settings.categories} items={filtered} edit={edit} remove={remove} />}
+      {tab === 'history' && <History month={month} setMonth={setMonth} all={historyAll} setAll={setHistoryAll} query={query} setQuery={setQuery} filter={categoryFilter} setFilter={setCategoryFilter} categories={settings.categories} items={filtered} edit={edit} remove={remove} />}
       {tab === 'stats' && <Stats month={month} setMonth={setMonth} total={total} categories={categories} />}
       {tab === 'settings' && <Settings settings={settings} update={updateSettings} newCategory={newCategory} setNewCategory={setNewCategory} />}
     </ScrollView>
@@ -108,15 +109,15 @@ function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,
     {Platform.OS === 'web' && <Text style={s.warning}>Web版では画面確認と手入力ができます。実際のOCRはAndroid/iOS development buildで動作します。</Text>}
     {imageUri && <Image source={{uri:imageUri}} style={s.preview} resizeMode="contain"/>}{processing && <ActivityIndicator style={s.loader} color="#0f766e" size="large"/>}
     {!processing && <View style={s.card}>{draft.rawText ? <Text style={[s.confidence,draft.confidence<.75&&s.low]}>認識信頼度 {Math.round(draft.confidence*100)}%{draft.confidence<.75?' · 要確認':''}</Text>:null}
-      {draft.rawText ? <Text selectable style={s.help}>{draft.rawText}</Text> : null}<Field label="店舗名" value={draft.storeName} onChange={v=>set('storeName',v)}/><Field label="日付 (YYYY-MM-DD)" value={draft.date} onChange={v=>set('date',v)}/><Field label="金額 (円)" value={draft.amount} onChange={v=>set('amount',v)} numeric/><Field label="支払方法" value={draft.paymentMethod} onChange={v=>set('paymentMethod',v)}/><Field label="メモ" value={draft.note} onChange={v=>set('note',v)}/>
+      <Field label="店舗名" value={draft.storeName} onChange={v=>set('storeName',v)}/><Field label="日付 (YYYY-MM-DD)" value={draft.date} onChange={v=>set('date',v)}/><Field label="金額 (円)" value={draft.amount} onChange={v=>set('amount',v)} numeric/><Field label="支払方法" value={draft.paymentMethod} onChange={v=>set('paymentMethod',v)}/><Field label="メモ" value={draft.note} onChange={v=>set('note',v)}/>
       <Text style={s.label}>カテゴリ</Text><View style={s.chips}>{categories.map(c=><Chip key={c} label={c} active={draft.category===c} onPress={()=>set('category',c)}/>)}</View>
       <Text style={s.label}>画像の種類</Text><View style={s.quickRow}><Chip label="紙レシート" active={draft.sourceType==='receipt'} onPress={()=>setDraft({...draft,sourceType:'receipt'})}/><Chip label="決済画面" active={draft.sourceType==='payment_screenshot'} onPress={()=>setDraft({...draft,sourceType:'payment_screenshot'})}/></View>
       <Pressable style={s.primary} onPress={submit}><Text style={s.primaryText}>確認して保存</Text></Pressable>{editing&&<Pressable onPress={reset}><Text style={s.cancel}>編集をキャンセル</Text></Pressable>}</View>}
   </>;
 }
 
-function History({month,setMonth,query,setQuery,filter,setFilter,categories,items,edit,remove}:{month:string;setMonth:(m:string)=>void;query:string;setQuery:(q:string)=>void;filter:string;setFilter:(f:string)=>void;categories:string[];items:Expense[];edit:(e:Expense)=>void;remove:(id:string)=>void}) {
-  return <><MonthNav month={month} setMonth={setMonth}/><TextInput style={s.search} placeholder="店舗・メモ・支払方法を検索" value={query} onChangeText={setQuery}/><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}><Chip label="すべて" active={filter==='すべて'} onPress={()=>setFilter('すべて')}/>{categories.map(c=><Chip key={c} label={c} active={filter===c} onPress={()=>setFilter(c)}/>)}</ScrollView>
+function History({month,setMonth,all,setAll,query,setQuery,filter,setFilter,categories,items,edit,remove}:{month:string;setMonth:(m:string)=>void;all:boolean;setAll:(v:boolean)=>void;query:string;setQuery:(q:string)=>void;filter:string;setFilter:(f:string)=>void;categories:string[];items:Expense[];edit:(e:Expense)=>void;remove:(id:string)=>void}) {
+  return <><View style={s.quickRow}><Chip label={`全期間 (${items.length}件)`} active={all} onPress={()=>setAll(true)}/><Chip label="月別表示" active={!all} onPress={()=>setAll(false)}/></View>{!all&&<MonthNav month={month} setMonth={setMonth}/>}<TextInput style={s.search} placeholder="店舗・メモ・支払方法を検索" value={query} onChangeText={setQuery}/><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}><Chip label="すべて" active={filter==='すべて'} onPress={()=>setFilter('すべて')}/>{categories.map(c=><Chip key={c} label={c} active={filter===c} onPress={()=>setFilter(c)}/>)}</ScrollView>
     {items.length?items.map(item=><View key={item.id} style={s.expense}><Pressable style={{flex:1}} onPress={()=>edit(item)}><Text style={s.expenseStore}>{item.storeName}</Text><Text style={s.expenseMeta}>{item.date} · {item.category} · {item.paymentMethod}</Text></Pressable><View style={s.amountSide}><Text style={s.expenseAmount}>{yen(Number(item.amount))}</Text><Pressable onPress={()=>remove(item.id)}><Text style={s.delete}>削除</Text></Pressable></View></View>):<Empty text="この月の支出はありません。"/>}</>;
 }
 
