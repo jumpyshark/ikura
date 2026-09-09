@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseReceiptText } from '../src/services/parser';
+import { parseReceiptText, parseStructuredReceipt, reconstructReceiptRows } from '../src/services/parser';
 import type { MerchantRule } from '../src/services/database';
 
 const merchants: MerchantRule[] = [
@@ -44,4 +44,27 @@ test('leaves conflicting final totals for confirmation',()=>{
   const result=parseReceiptText(['テスト店','合計 ¥500','お会計 ¥800'],merchants);
   assert.equal(result.amount,'');
   assert.deepEqual(result.amountCandidates?.sort(),['500','800']);
+});
+
+test('reconstructs receipt columns before selecting the total',()=>{
+  const positioned = [
+    {text:'FamilyMart',frame:{x:0.10,y:0.05,width:0.42,height:0.04}},
+    {text:'2016年9月29日',frame:{x:0.10,y:0.14,width:0.38,height:0.03}},
+    {text:'商品合計',frame:{x:0.10,y:0.55,width:0.22,height:0.03}},
+    {text:'¥482',frame:{x:0.76,y:0.55,width:0.14,height:0.03}},
+    {text:'合',frame:{x:0.10,y:0.65,width:0.05,height:0.03}},
+    {text:'計',frame:{x:0.18,y:0.65,width:0.05,height:0.03}},
+    {text:'¥460',frame:{x:0.76,y:0.65,width:0.14,height:0.03}},
+    {text:'お預り',frame:{x:0.10,y:0.72,width:0.18,height:0.03}},
+    {text:'¥510',frame:{x:0.76,y:0.72,width:0.14,height:0.03}},
+    {text:'お釣り',frame:{x:0.10,y:0.78,width:0.18,height:0.03}},
+    {text:'¥50',frame:{x:0.78,y:0.78,width:0.12,height:0.03}},
+  ];
+  assert.ok(reconstructReceiptRows(positioned).includes('合 計 ¥460'));
+  assert.equal(parseStructuredReceipt(positioned,merchants).amount,'460');
+});
+
+test('repairs common OCR label confusion',()=>{
+  const result=parseReceiptText(['テスト店','2026/09/09','合言十 ¥980','お釣リ ¥20'],merchants);
+  assert.equal(result.amount,'980');
 });

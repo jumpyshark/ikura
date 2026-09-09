@@ -4,6 +4,7 @@
   "private": true,
   "main": "index.ts",
   "scripts": {
+    "postinstall": "patch-package",
     "start": "expo start",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
@@ -26,6 +27,7 @@
   "devDependencies": {
     "@types/node": "^26.5.0",
     "@types/react": "~19.2.2",
+    "patch-package": "^8.0.1",
     "tsx": "^4.23.13",
     "typescript": "~6.0.3"
   }

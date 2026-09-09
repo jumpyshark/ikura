@@ -43,6 +43,14 @@ jobs:
       - name: Check Expo dependencies
         run: npx expo install --check
 
+      - name: Verify TypeScript and receipt parser
+        run: |
+          npm run typecheck
+          npm run test:parser
+
+      - name: Verify iOS JavaScript bundle
+        run: npx expo export --platform ios
+
       - name: Generate native iOS project
         run: CI=1 npx expo prebuild --platform ios --clean
 
