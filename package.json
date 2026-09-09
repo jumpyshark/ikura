@@ -13,6 +13,7 @@
     "@zhanziyang/expo-text-extractor": "1.0.2",
     "expo": "~56.0.21",
     "expo-image-picker": "~56.0.25",
+    "expo-modules-core": "56.0.25",
     "expo-status-bar": "~56.0.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
