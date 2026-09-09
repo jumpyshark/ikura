@@ -17,7 +17,26 @@ const categoryHints: [RegExp, string][] = [
   [/スーパー|マート|市場|青果|酒店/, '食費'],
 ];
 
-const normalize = (value: string) => value.normalize('NFKC').replace(/[‐‑‒–—―ー]/g, '-').trim();
+export interface PositionedTextLine {
+  text: string;
+  frame: { x: number; y: number; width: number; height: number };
+  elements?: Array<{ text: string; frame: { x: number; y: number; width: number; height: number } }>;
+}
+
+const ocrCorrections: [RegExp, string][] = [
+  [/合\s*[言詰]?\s*[十計]/gu, '合計'],
+  [/小\s*[言詰]?\s*[十計]/gu, '小計'],
+  [/お\s*預\s*[りリ]/gu, 'お預り'],
+  [/お\s*釣\s*[りリ]/gu, 'お釣り'],
+  [/フ[アァ]\s*ミリ[一ー]\s*マ[一ー]ト/gu, 'ファミリーマート'],
+  [/セブン[イィ]\s*レブ[ソン]/gu, 'セブンイレブン'],
+];
+
+const normalize = (value: string) => {
+  let normalized=value.normalize('NFKC').replace(/[‐‑‒–—―]/g, '-').trim();
+  for(const [pattern,replacement] of ocrCorrections) normalized=normalized.replace(pattern,replacement);
+  return normalized;
+};
 const compact = (value: string) => normalize(value).replace(/\s+/g, '');
 const merchantKey = (value: string) => compact(value).replace(/[・.\-_'’`]/g, '').toLocaleLowerCase('ja-JP');
 const amounts = (value: string) => [...normalize(value).matchAll(/([¥￥]\s*)?(-?\s*\d{1,3}(?:\s*[,，]\s*\d{3})+|-?\s*\d+)(\s*円)?/g)]
@@ -101,4 +120,36 @@ export function parseReceiptText(rawLines: string[], merchantRules: MerchantRule
   const sourceType=/支払い完了|決済完了|取引履歴|利用履歴/u.test(text)?'payment_screenshot':'receipt';
   const fieldConfidence={storeName:merchant.storeConfidence,date:date.value?(date.count===1?0.95:0.7):0,amount:total.confidence,category:merchant.categoryConfidence};
   return {storeName:merchant.name,date:date.value,amount:total.value,category:merchant.category,paymentMethod:/PayPay/i.test(text)?'PayPay':'未設定',note:'',sourceType,confidence:Object.values(fieldConfidence).reduce((a,b)=>a+b,0)/4,rawText:text,fieldConfidence,warnings,amountCandidates:total.candidates};
+}
+
+function verticalOverlap(a: PositionedTextLine, b: PositionedTextLine) {
+  const top=Math.max(a.frame.y,b.frame.y);
+  const bottom=Math.min(a.frame.y+a.frame.height,b.frame.y+b.frame.height);
+  return Math.max(0,bottom-top)/Math.max(0.001,Math.min(a.frame.height,b.frame.height));
+}
+
+/** Restores visual receipt rows that OCR APIs often return as separate columns. */
+export function reconstructReceiptRows(positionedLines: PositionedTextLine[]): string[] {
+  const usable=positionedLines
+    .filter((line)=>line.text.trim() && Number.isFinite(line.frame.y))
+    .sort((a,b)=>a.frame.y-b.frame.y || a.frame.x-b.frame.x);
+  const rows: PositionedTextLine[][]=[];
+  for(const line of usable){
+    const center=line.frame.y+line.frame.height/2;
+    const row=rows.find((candidate)=>{
+      const anchor=candidate[0]!;
+      const anchorCenter=anchor.frame.y+anchor.frame.height/2;
+      const tolerance=Math.max(anchor.frame.height,line.frame.height)*0.55;
+      return verticalOverlap(anchor,line)>=0.35 || Math.abs(center-anchorCenter)<=tolerance;
+    });
+    if(row) row.push(line); else rows.push([line]);
+  }
+  return rows
+    .sort((a,b)=>Math.min(...a.map(v=>v.frame.y))-Math.min(...b.map(v=>v.frame.y)))
+    .map((row)=>row.sort((a,b)=>a.frame.x-b.frame.x).map((line)=>normalize(line.text)).join(' ').trim())
+    .filter(Boolean);
+}
+
+export function parseStructuredReceipt(positionedLines: PositionedTextLine[], merchantRules: MerchantRule[] = []): ExpenseDraft {
+  return parseReceiptText(reconstructReceiptRows(positionedLines),merchantRules);
 }

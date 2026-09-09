@@ -1,0 +1,172 @@
+diff --git a/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt b/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
+index a676ed9..2403209 100644
+--- a/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
++++ b/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
+@@ -113,6 +113,38 @@ class ExpoTextExtractorModule : Module() {
+       }
+     }
+ 
++    AsyncFunction("extractStructuredTextFromImage") { uriString: String, options: RecognitionOptionsRecord?, promise: Promise ->
++      try {
++        val context = appContext.reactContext!!
++        val uri = if (uriString.startsWith("content://")) Uri.parse(uriString) else Uri.fromFile(File(uriString))
++        val inputImage = InputImage.fromFilePath(context, uri)
++        getRecognizerForScript(options?.script).process(inputImage)
++          .addOnSuccessListener { visionText ->
++            val width = inputImage.width.toDouble().coerceAtLeast(1.0)
++            val height = inputImage.height.toDouble().coerceAtLeast(1.0)
++            val result = visionText.textBlocks.flatMap { block -> block.lines }.map { line ->
++              val rect = line.boundingBox
++              val frame = mapOf(
++                "x" to ((rect?.left ?: 0) / width), "y" to ((rect?.top ?: 0) / height),
++                "width" to ((rect?.width() ?: 0) / width), "height" to ((rect?.height() ?: 0) / height)
++              )
++              val elements = line.elements.map { element ->
++                val elementRect = element.boundingBox
++                mapOf("text" to element.text, "frame" to mapOf(
++                  "x" to ((elementRect?.left ?: 0) / width), "y" to ((elementRect?.top ?: 0) / height),
++                  "width" to ((elementRect?.width() ?: 0) / width), "height" to ((elementRect?.height() ?: 0) / height)
++                ))
++              }
++              mapOf("text" to line.text, "frame" to frame, "elements" to elements)
++            }
++            promise.resolve(result)
++          }
++          .addOnFailureListener { error -> promise.reject(CodedException("TEXT_RECOGNITION_ERROR", error.message ?: "Text recognition failed", error)) }
++      } catch (error: Exception) {
++        promise.reject(CodedException("UNKNOWN_ERROR", error.message ?: "Unknown error", error))
++      }
++    }
++
+     /**
+      * Returns the list of supported scripts on Android.
+      * 
+diff --git a/node_modules/@zhanziyang/expo-text-extractor/build/ExpoTextExtractorModule.d.ts b/node_modules/@zhanziyang/expo-text-extractor/build/ExpoTextExtractorModule.d.ts
+index 5306784..08bfec1 100644
+--- a/node_modules/@zhanziyang/expo-text-extractor/build/ExpoTextExtractorModule.d.ts
++++ b/node_modules/@zhanziyang/expo-text-extractor/build/ExpoTextExtractorModule.d.ts
+@@ -2,8 +2,14 @@ import type { TextRecognitionScript, RecognitionOptions } from './types';
+ interface ExpoTextExtractorModule {
+     isSupported: boolean;
+     extractTextFromImage: (uri: string, options?: RecognitionOptions) => Promise<string[]>;
++    extractStructuredTextFromImage: (uri: string, options?: RecognitionOptions) => Promise<StructuredTextLine[]>;
+     getSupportedLanguages: (script?: TextRecognitionScript) => Promise<string[]>;
+ }
++export interface StructuredTextLine {
++    text: string;
++    frame: { x: number; y: number; width: number; height: number };
++    elements: Array<{ text: string; frame: { x: number; y: number; width: number; height: number } }>;
++}
+ declare const _default: ExpoTextExtractorModule;
+ export default _default;
+ //# sourceMappingURL=ExpoTextExtractorModule.d.ts.map
+diff --git a/node_modules/@zhanziyang/expo-text-extractor/build/index.d.ts b/node_modules/@zhanziyang/expo-text-extractor/build/index.d.ts
+index aaa2cf0..f757b4f 100644
+--- a/node_modules/@zhanziyang/expo-text-extractor/build/index.d.ts
++++ b/node_modules/@zhanziyang/expo-text-extractor/build/index.d.ts
+@@ -35,6 +35,7 @@ export declare const isSupported: boolean;
+  * });
+  */
+ export declare function extractTextFromImage(uri: string, options?: RecognitionOptions): Promise<string[]>;
++export declare function extractStructuredTextFromImage(uri: string, options?: RecognitionOptions): Promise<import('./ExpoTextExtractorModule').StructuredTextLine[]>;
+ /**
+  * Gets the list of supported languages for text recognition.
+  *
+diff --git a/node_modules/@zhanziyang/expo-text-extractor/build/index.js b/node_modules/@zhanziyang/expo-text-extractor/build/index.js
+index 86a63e8..c0e5b5f 100644
+--- a/node_modules/@zhanziyang/expo-text-extractor/build/index.js
++++ b/node_modules/@zhanziyang/expo-text-extractor/build/index.js
+@@ -40,6 +40,10 @@ export async function extractTextFromImage(uri, options) {
+     const processedUri = uri.replace('file://', '');
+     return ExpoTextExtractorModule.extractTextFromImage(processedUri, options);
+ }
++export async function extractStructuredTextFromImage(uri, options) {
++    const processedUri = uri.replace('file://', '');
++    return ExpoTextExtractorModule.extractStructuredTextFromImage(processedUri, options);
++}
+ /**
+  * Gets the list of supported languages for text recognition.
+  *
+diff --git a/node_modules/@zhanziyang/expo-text-extractor/ios/ExpoTextExtractorModule.swift b/node_modules/@zhanziyang/expo-text-extractor/ios/ExpoTextExtractorModule.swift
+index a35ccb1..25f4eaa 100644
+--- a/node_modules/@zhanziyang/expo-text-extractor/ios/ExpoTextExtractorModule.swift
++++ b/node_modules/@zhanziyang/expo-text-extractor/ios/ExpoTextExtractorModule.swift
+@@ -109,6 +109,40 @@ public class ExpoTextExtractorModule: Module {
+             }
+         }
+ 
++        AsyncFunction("extractStructuredTextFromImage") { (url: URL, options: RecognitionOptions?, promise: Promise) in
++            do {
++                let imageData = try Data(contentsOf: url)
++                guard let image = UIImage(data: imageData), let cgImage = image.cgImage else {
++                    throw Exception(name: "IMAGE_LOAD_ERROR", description: "Failed to load image from URL")
++                }
++                let request = VNRecognizeTextRequest { request, error in
++                    if let error = error {
++                        promise.reject(Exception(name: "TEXT_RECOGNITION_ERROR", description: error.localizedDescription))
++                        return
++                    }
++                    let observations = (request.results as? [VNRecognizedTextObservation]) ?? []
++                    let result = observations.compactMap { observation -> [String: Any]? in
++                        guard let candidate = observation.topCandidates(1).first else { return nil }
++                        let box = observation.boundingBox
++                        let frame: [String: Double] = [
++                            "x": box.minX, "y": 1.0 - box.maxY,
++                            "width": box.width, "height": box.height
++                        ]
++                        return ["text": candidate.string, "frame": frame, "elements": []]
++                    }
++                    promise.resolve(result)
++                }
++                request.recognitionLevel = .accurate
++                request.recognitionLanguages = options?.languages?.isEmpty == false ? options!.languages! : ["ja-JP", "en-US"]
++                request.usesLanguageCorrection = options?.usesLanguageCorrection ?? true
++                if #available(iOS 16.0, *) { request.automaticallyDetectsLanguage = true }
++                if let minHeight = options?.minimumTextHeight { request.minimumTextHeight = minHeight }
++                try VNImageRequestHandler(cgImage: cgImage).perform([request])
++            } catch {
++                promise.reject(error)
++            }
++        }
++        
+         /// Returns the list of supported recognition languages for the current device.
+         ///
+         /// - Parameter script: Optional script type to filter languages (currently unused)
+diff --git a/node_modules/@zhanziyang/expo-text-extractor/src/ExpoTextExtractorModule.ts b/node_modules/@zhanziyang/expo-text-extractor/src/ExpoTextExtractorModule.ts
+index 048a44b..f55a8e3 100644
+--- a/node_modules/@zhanziyang/expo-text-extractor/src/ExpoTextExtractorModule.ts
++++ b/node_modules/@zhanziyang/expo-text-extractor/src/ExpoTextExtractorModule.ts
+@@ -5,7 +5,14 @@ import type { TextRecognitionScript, RecognitionOptions } from './types';
+ interface ExpoTextExtractorModule {
+   isSupported: boolean;
+   extractTextFromImage: (uri: string, options?: RecognitionOptions) => Promise<string[]>;
++  extractStructuredTextFromImage: (uri: string, options?: RecognitionOptions) => Promise<StructuredTextLine[]>;
+   getSupportedLanguages: (script?: TextRecognitionScript) => Promise<string[]>;
+ }
+ 
++export interface StructuredTextLine {
++  text: string;
++  frame: { x: number; y: number; width: number; height: number };
++  elements: Array<{ text: string; frame: { x: number; y: number; width: number; height: number } }>;
++}
++
+ export default requireNativeModule<ExpoTextExtractorModule>('ExpoTextExtractor');
+diff --git a/node_modules/@zhanziyang/expo-text-extractor/src/index.ts b/node_modules/@zhanziyang/expo-text-extractor/src/index.ts
+index 0414ee2..e8655c7 100644
+--- a/node_modules/@zhanziyang/expo-text-extractor/src/index.ts
++++ b/node_modules/@zhanziyang/expo-text-extractor/src/index.ts
+@@ -48,6 +48,14 @@ export async function extractTextFromImage(
+   return ExpoTextExtractorModule.extractTextFromImage(processedUri, options);
+ }
+ 
++export async function extractStructuredTextFromImage(
++  uri: string,
++  options?: RecognitionOptions
++) {
++  const processedUri = uri.replace('file://', '');
++  return ExpoTextExtractorModule.extractStructuredTextFromImage(processedUri, options);
++}
++
+ /**
+  * Gets the list of supported languages for text recognition.
+  * 
