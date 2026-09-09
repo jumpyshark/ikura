@@ -151,5 +151,43 @@ export function reconstructReceiptRows(positionedLines: PositionedTextLine[]): s
 }
 
 export function parseStructuredReceipt(positionedLines: PositionedTextLine[], merchantRules: MerchantRule[] = []): ExpenseDraft {
-  return parseReceiptText(reconstructReceiptRows(positionedLines),merchantRules);
+  const rows = reconstructReceiptRows(positionedLines);
+  const draft = parseReceiptText(rows,merchantRules);
+  // Arithmetic is corroboration, never permission to invent a missing total.
+  const labelled = (label: RegExp, signed = false): number | undefined => {
+    const values = rows.flatMap(row => {
+      const value = compact(row);
+      const match = value.match(label);
+      if (!match) return [];
+      const rest = value.slice((match.index ?? 0) + match[0].length);
+      const numbers = [...rest.matchAll(/[¥￥]?(-?\d[\d,]*)円?/g)]
+        .map(m => Number(m[1]!.replace(/,/g,'')))
+        .filter(n => Number.isSafeInteger(n) && Math.abs(n) < 10_000_000);
+      return numbers.length === 1 ? [signed ? Math.abs(numbers[0]!) : numbers[0]!] : [];
+    });
+    const unique = [...new Set(values)];
+    return unique.length === 1 ? unique[0] : undefined;
+  };
+  const cash = labelled(/お預(?:り|かり)?|預り金額/);
+  const change = labelled(/お釣り?|釣銭/);
+  const merchandise = labelled(/商品合計/);
+  const discount = labelled(/値引(?:き)?合計|割引(?:き)?合計/, true);
+  const checks: Array<{value:number;label:string}> = [];
+  if (cash !== undefined && change !== undefined && cash >= change)
+    checks.push({value:cash-change,label:'お預り－お釣り'});
+  if (merchandise !== undefined && discount !== undefined && merchandise >= discount)
+    checks.push({value:merchandise-discount,label:'商品合計－値引合計（税の扱いも確認）'});
+  for (const check of checks) {
+    if (draft.amount && Number(draft.amount) !== check.value) {
+      draft.warnings ??= [];
+      draft.warnings.push(`${check.label}は${check.value}円です。合計との違いを確認してください。`);
+      if (draft.fieldConfidence) draft.fieldConfidence.amount = Math.min(draft.fieldConfidence.amount, 0.45);
+    }
+    if (!draft.amount && check.value > 0) {
+      draft.warnings ??= [];
+      draft.warnings.push(`${check.label}は${check.value}円です。画像で合計を確認してください。`);
+    }
+  }
+  if (draft.fieldConfidence) draft.confidence = Object.values(draft.fieldConfidence).reduce((a,b)=>a+b,0)/4;
+  return draft;
 }

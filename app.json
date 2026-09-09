@@ -16,6 +16,7 @@
       "bundler": "metro"
     },
     "plugins": [
+      "react-native-document-scanner-plugin",
       [
         "expo-image-picker",
         {

@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, Linking, Image, Platform, Pressable, ScrollVi
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { applyAiFallback } from './src/services/aiFallback';
 import { extractExpense } from './src/services/ocr';
+import { scanReceipt } from './src/services/scanner';
 import { defaultSettings, deleteExpense, insertExpense, loadExpenses, loadSettings, saveSettings, updateExpense } from './src/services/storage';
 import type { AppSettings, Expense, ExpenseDraft } from './src/types/expense';
 
@@ -47,6 +48,7 @@ export default function App() {
   const chooseImage = async (camera: boolean) => {
     if (busy.current) return;
     busy.current = true;
+    const request = ++ocrRequest.current;
     try {
       if (camera) {
         const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -56,21 +58,27 @@ export default function App() {
         }
       }
       const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 1, allowsEditing: false };
-      const result = camera ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
-      if (result.canceled || !result.assets[0]?.uri) return;
-      const request = ++ocrRequest.current;
-      const uri = result.assets[0].uri;
+      let uri: string | undefined;
+      if (camera) uri = await scanReceipt();
+      else {
+        const result = await ImagePicker.launchImageLibraryAsync(options);
+        if (!result.canceled) uri = result.assets[0]?.uri;
+      }
+      if (!uri || request !== ocrRequest.current) return;
       setImageUri(uri); setProcessing(true); setEditingId(undefined);
       const recognized = await extractExpense(uri);
       if (request !== ocrRequest.current) return;
       setDraft(recognized);
       if (settings.aiFallbackEnabled) {
-        try { setDraft(await applyAiFallback(recognized)); }
-        catch { Alert.alert('AI補助を利用できません', 'OCR結果を確認して保存できます。'); }
+        try {
+          const assisted = await applyAiFallback(recognized);
+          if (request === ocrRequest.current) setDraft(assisted);
+        }
+        catch { if (request === ocrRequest.current) Alert.alert('AI補助を利用できません', 'OCR結果を確認して保存できます。'); }
       }
     } catch (error) {
-      Alert.alert('画像を読み込めません', error instanceof Error ? error.message : 'もう一度お試しください。');
-    } finally { setProcessing(false); busy.current = false; }
+      if (request === ocrRequest.current) Alert.alert('画像を読み込めません', error instanceof Error ? error.message : 'もう一度お試しください。');
+    } finally { if (request === ocrRequest.current) { setProcessing(false); busy.current = false; } }
   };
   const submit = async () => {
     if (busy.current || !ready) return;

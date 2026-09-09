@@ -68,3 +68,25 @@ test('repairs common OCR label confusion',()=>{
   const result=parseReceiptText(['テスト店','2026/09/09','合言十 ¥980','お釣リ ¥20'],merchants);
   assert.equal(result.amount,'980');
 });
+
+const positionedRows = (rows: string[]) => rows.map((text,i) => ({text,frame:{x:0.1,y:i*0.06,width:0.8,height:0.03}}));
+
+test('flags a total conflicting with cash arithmetic',()=>{
+  const result=parseStructuredReceipt(positionedRows(['テスト店','合計 ¥480','お預り ¥510','お釣り ¥50']));
+  assert.equal(result.amount,'480');
+  assert.ok(result.warnings?.some(w=>w.includes('460円')));
+  assert.ok(result.fieldConfidence!.amount <= 0.45);
+});
+
+test('does not invent a total from cash arithmetic',()=>{
+  const result=parseStructuredReceipt(positionedRows(['テスト店','お預り ¥510','お釣り ¥50']));
+  assert.equal(result.amount,'');
+  assert.ok(result.warnings?.some(w=>w.includes('460円')));
+});
+
+test('handles zero change and ambiguous cash values',()=>{
+  const zero=parseStructuredReceipt(positionedRows(['テスト店','合計 ¥500','お預り ¥500','お釣り ¥0']));
+  assert.ok(!zero.warnings?.some(w=>w.includes('違い')));
+  const ambiguous=parseStructuredReceipt(positionedRows(['テスト店','合計 ¥460','お預り ¥510','お預り ¥1000','お釣り ¥50']));
+  assert.ok(!ambiguous.warnings?.some(w=>w.includes('違い')));
+});
