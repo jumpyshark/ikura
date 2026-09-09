@@ -6,21 +6,22 @@ on:
 jobs:
   build:
     name: Build unsigned IPA
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Select latest stable Xcode
+      - name: Select Xcode 26.4
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
+          xcode-version: "26.4"
 
-      - name: Show Xcode and Swift versions
+      - name: Show build environment
         run: |
           xcodebuild -version
-          swift --version
+          xcrun swift --version
+          xcrun --sdk iphoneos --show-sdk-version
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -31,8 +32,19 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
 
+      - name: Remove stale Expo native binaries
+        shell: bash
+        run: |
+          rm -rf node_modules/expo-modules-jsi/apple/Products
+          rm -rf node_modules/expo-modules-core/apple/Products
+          rm -rf build
+          rm -rf ios
+
+      - name: Check Expo dependencies
+        run: npx expo install --check
+
       - name: Generate native iOS project
-        run: CI=1 npx expo prebuild --platform ios
+        run: CI=1 npx expo prebuild --platform ios --clean
 
       - name: Install CocoaPods dependencies
         run: npx pod-install
@@ -75,6 +87,7 @@ jobs:
 
           echo "Packaging: $APP_PATH"
 
+          rm -rf Payload
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
 
