@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "ReceiptLog",
+    "slug": "receiptlog",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.jumpyshark.receiptlog" },
+    "android": { "package": "com.jumpyshark.receiptlog" },
+    "web": { "bundler": "metro" },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "レシートや決済履歴の画像を読み込むために写真へのアクセスを使用します。",
+          "cameraPermission": "レシートを撮影するためにカメラを使用します。"
+        }
+      ]
+    ]
+  }
+}
