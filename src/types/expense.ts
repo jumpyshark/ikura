@@ -8,6 +8,9 @@ export type ExpenseDraft = {
   sourceType: 'receipt' | 'payment_screenshot';
   confidence: number;
   rawText: string;
+  fieldConfidence?: { storeName: number; date: number; amount: number; category: number };
+  warnings?: string[];
+  amountCandidates?: string[];
 };
 
 export type Expense = ExpenseDraft & { id: string; imageUri?: string };
