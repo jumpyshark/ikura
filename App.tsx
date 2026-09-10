@@ -36,6 +36,7 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState<ReviewedCandidate[]>([]);
   const [captureVisible,setCaptureVisible]=useState(false);
+  const [captureEntry,setCaptureEntry]=useState<'camera'|'gallery'|'review'>('camera');
   const [captureDirty,setCaptureDirty]=useState(false);
   const [captureSession,setCaptureSession]=useState(0);
   const batchSignature=useRef('');
@@ -60,7 +61,7 @@ export default function App() {
     }
   };
   const cancelCapture = () => { if(saving)return;Alert.alert('未保存の内容を破棄しますか？','画像と入力内容が消えます。保存済みの支出は残ります。',[{text:'戻る',style:'cancel'},{text:'破棄する',style:'destructive',onPress:()=>{ocrRequest.current++;busy.current=false;setProcessing(false);resetForm();}}]); };
-  const chooseImage = (_camera:boolean) => {if(!busy.current) setCaptureVisible(true);};
+  const chooseImage = (camera:boolean) => {if(!busy.current) {setCaptureEntry(imageUri?'review':camera?'camera':'gallery');setCaptureVisible(true);}};
   const acceptImages=(rows:ReviewedCandidate[],signature:string)=>{
     if(signature===batchSignature.current) {setCaptureVisible(false);return;}
     const accept=()=>{const first=rows[0];if(!first)return;batchSignature.current=signature;batchCounts.current={saved:0,skipped:0};setDraft(first.draft);setImageUri(first.imageUri);setCandidateKind(first.kind);setPending(rows.slice(1));setEditingId(undefined);setCaptureVisible(false);setTab('add');};
@@ -98,13 +99,13 @@ export default function App() {
     <View style={s.header}><Text style={s.logo}>ReceiptLog</Text><Text style={s.headerMonth}>{monthLabel(month)}</Text></View>
     <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
       {tab === 'home' && <Home month={month} setMonth={setMonth} total={total} budget={settings.monthlyBudget} count={monthly.length} categories={categories} recent={expenses.slice(0,3)} setTab={setTab} />}
-      {tab === 'add' && <>{pending.length>0 && <Text style={s.warning}>この取引の後に {pending.length} 件あります。1件ずつ確認してください。</Text>}{!processing && !saving && draft.rawText && !editingId && <Pressable style={s.secondaryButton} onPress={()=>advance()}><Text style={s.secondaryText}>この取引をスキップ</Text></Pressable>}<Add draft={draft} setDraft={setDraft} imageUri={imageUri} processing={processing || saving} editing={Boolean(editingId)} categories={settings.categories} chooseImage={chooseImage} submit={()=>void submit()} reset={cancelCapture} cancel={cancelCapture} /></>}
+      {tab === 'add' && <>{pending.length>0 && <Text style={s.warning}>この取引の後に {pending.length} 件あります。1件ずつ確認してください。</Text>}{!processing && !saving && imageUri && !editingId && <Pressable style={s.secondaryButton} onPress={()=>advance()}><Text style={s.secondaryText}>この取引をスキップ</Text></Pressable>}<Add draft={draft} setDraft={setDraft} imageUri={imageUri} processing={processing || saving} editing={Boolean(editingId)} categories={settings.categories} chooseImage={chooseImage} submit={()=>void submit()} reset={cancelCapture} cancel={cancelCapture} /></>}
       {tab === 'history' && <History month={month} setMonth={setMonth} all={historyAll} setAll={setHistoryAll} query={query} setQuery={setQuery} filter={categoryFilter} setFilter={setCategoryFilter} categories={settings.categories} items={filtered} edit={edit} remove={remove} />}
       {tab === 'stats' && <Stats month={month} setMonth={setMonth} total={total} categories={categories} />}
       {tab === 'settings' && <Settings settings={settings} update={updateSettings} newCategory={newCategory} setNewCategory={setNewCategory} />}
     </ScrollView>
     <SafeAreaView style={s.navSafe} edges={['bottom']}><View style={s.nav}>{([['home','ホーム'],['add','追加'],['history','履歴'],['stats','分析'],['settings','設定']] as [Tab,string][]).map(([key,label]) => <Pressable key={key} style={s.navItem} onPress={() => { if(busy.current) return; setTab(key); }}><Text style={[s.navText, tab === key && s.navActive]}>{label}</Text></Pressable>)}</View></SafeAreaView>
-    <CaptureFlow key={captureSession} visible={captureVisible} onClose={()=>setCaptureVisible(false)} onDiscard={resetForm} onComplete={acceptImages} aiEnabled={settings.aiFallbackEnabled} onDirty={setCaptureDirty}/>
+    <CaptureFlow key={captureSession} visible={captureVisible} entry={captureEntry} focusUri={imageUri} onClose={()=>setCaptureVisible(false)} onDiscard={resetForm} onComplete={acceptImages} aiEnabled={settings.aiFallbackEnabled} onDirty={setCaptureDirty}/>
   </SafeAreaView></SafeAreaProvider>;
 }
 
@@ -118,8 +119,8 @@ function Home({ month, setMonth, total, budget, count, categories, recent, setTa
 
 function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,submit,reset,cancel}:{draft:ExpenseDraft;setDraft:(d:ExpenseDraft)=>void;imageUri?:string;processing:boolean;editing:boolean;categories:string[];chooseImage:(c:boolean)=>void;submit:()=>void;reset:()=>void;cancel:()=>void}) {
   const set=(key:keyof ExpenseDraft,value:string)=>setDraft({...draft,[key]:value});
-  return <><Title text={editing?'支出を編集':draft.rawText?'読み取り結果を確認':'支出を追加'} /><Text style={s.help}>読み取り結果も手入力も、保存前に必ず確認できます。</Text>
-    {!editing && <View style={s.quickRow}><Quick label={draft.rawText?'画像確認に戻る':'撮影・画像を選択'} onPress={()=>chooseImage(true)}/></View>}
+  return <><Title text={editing?'支出を編集':imageUri?'画像と読み取り結果を確認':'支出を追加'} /><Text style={s.help}>画像と内容を確認・修正してから「確認して保存」を押してください。</Text>
+    {!editing && <View style={s.quickRow}><Quick label={imageUri?'画像を調整・撮り直す':'写真を撮る'} onPress={()=>chooseImage(true)}/>{!imageUri&&<Quick label="画像を選択" onPress={()=>chooseImage(false)} secondary/>}</View>}
     {Platform.OS === 'web' && <Text style={s.warning}>ブラウザー版では手入力できます。画像の読み取りはスマートフォン版で利用してください。</Text>}
     {imageUri && <Image source={{uri:imageUri}} style={s.preview} resizeMode="contain"/>}{processing && <><ActivityIndicator style={s.loader} color="#0f766e" size="large"/><Pressable style={s.secondaryButton} onPress={cancel}><Text style={s.secondaryText}>OCRをキャンセル</Text></Pressable></>}
     {!processing && <View style={s.card}>{draft.rawText ? <Text style={[s.confidence,(!draft.storeName||!draft.date||!draft.amount)&&s.low]}>{!draft.storeName||!draft.date||!draft.amount?'未入力の項目があります。確認してください。':'画像と照らし合わせて内容を確認してください。'}</Text>:null}

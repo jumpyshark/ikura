@@ -1,6 +1,15 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {fullCrop,moveCorner,suggestCrop,validCrop} from '../src/services/imageGeometry';
+import {fitImage,fullCrop,moveCorner,suggestCrop,validCrop} from '../src/services/imageGeometry';
+
+test('crop display fits long receipts and landscape images without stretching',()=>{
+ for(const [w,h] of [[1000,9000],[4000,1000],[2000,3000]]){
+  const fit=fitImage(w!,h!,300,380);
+  assert.ok(fit.width<=300&&fit.height<=380);
+  assert.ok(Math.abs(fit.width/fit.height-w!/h!)<.0001);
+ }
+ assert.deepEqual(fitImage(1000,2000,0,300),{width:0,height:0});
+});
 
 test('bright paper proposal includes all boundaries and safety padding',()=>{
  const pixels=Array.from({length:10000},(_,i)=>{const x=i%100,y=Math.floor(i/100);return x>=25&&x<=75&&y>=10&&y<=90?230:35;});
