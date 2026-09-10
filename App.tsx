@@ -6,6 +6,8 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { applyAiFallback } from './src/services/aiFallback';
 import { extractExpense } from './src/services/ocr';
 import { scanReceipt } from './src/services/scanner';
+import { findDuplicates } from './src/services/duplicates';
+import type { PaymentCandidate } from './src/services/payments';
 import { defaultSettings, deleteExpense, insertExpense, loadExpenses, loadSettings, saveSettings, updateExpense } from './src/services/storage';
 import type { AppSettings, Expense, ExpenseDraft } from './src/types/expense';
 
@@ -35,6 +37,8 @@ export default function App() {
   const busy = useRef(false);
   const ocrRequest = useRef(0);
   const [saving, setSaving] = useState(false);
+  const [pending, setPending] = useState<PaymentCandidate[]>([]);
+  const [candidateKind, setCandidateKind] = useState<PaymentCandidate['kind']>('expense');
   const initialize = () => Promise.all([loadExpenses(), loadSettings()]).then(([e, s]) => { setExpenses(e); setSettings(s); setReady(true); }).catch(() => Alert.alert('データを読み込めません', '保存済みデータを保護するため、再読み込みしてください。', [{text:'再試行', onPress:initialize}]));
   useEffect(() => { void initialize(); }, []);
   const monthly = useMemo(() => expenses.filter((e) => e.date.startsWith(month)), [expenses, month]);
@@ -43,7 +47,8 @@ export default function App() {
   const categories = settings.categories.map((name) => ({ name, value: monthly.filter((e) => e.category === name).reduce((sum, e) => sum + Number(e.amount), 0) })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value);
 
   const refreshExpenses = async () => setExpenses(await loadExpenses());
-  const resetForm = () => { setDraft(blank()); setImageUri(undefined); setEditingId(undefined); };
+  const resetForm = () => { setDraft(blank()); setImageUri(undefined); setEditingId(undefined); setPending([]); setCandidateKind('expense'); };
+  const advance = () => { const next=pending[0]; if(next) { setDraft(next.draft); setCandidateKind(next.kind); setPending(pending.slice(1)); } else resetForm(); };
   const cancelCapture = () => { ocrRequest.current += 1; busy.current = false; setProcessing(false); resetForm(); };
   const chooseImage = async (camera: boolean) => {
     if (busy.current) return;
@@ -68,10 +73,12 @@ export default function App() {
       setImageUri(uri); setProcessing(true); setEditingId(undefined);
       const recognized = await extractExpense(uri);
       if (request !== ocrRequest.current) return;
-      setDraft(recognized);
-      if (settings.aiFallbackEnabled) {
+      const first = recognized[0];
+      if (!first) throw new Error('取引が見つかりませんでした。');
+      setDraft(first.draft); setCandidateKind(first.kind); setPending(recognized.slice(1));
+      if (settings.aiFallbackEnabled && first.kind === 'expense') {
         try {
-          const assisted = await applyAiFallback(recognized);
+          const assisted = await applyAiFallback(first.draft);
           if (request === ocrRequest.current) setDraft(assisted);
         }
         catch { if (request === ocrRequest.current) Alert.alert('AI補助を利用できません', 'OCR結果を確認して保存できます。'); }
@@ -80,16 +87,25 @@ export default function App() {
       if (request === ocrRequest.current) Alert.alert('画像を読み込めません', error instanceof Error ? error.message : 'もう一度お試しください。');
     } finally { if (request === ocrRequest.current) { setProcessing(false); busy.current = false; } }
   };
-  const submit = async () => {
+  const submit = async (confirmed = false) => {
     if (busy.current || !ready) return;
     if (!draft.storeName.trim() || !/^20\d{2}-\d{2}-\d{2}$/.test(draft.date) || !Number.isFinite(Number(draft.amount)) || Number(draft.amount) <= 0) return Alert.alert('入力確認', '店舗名、YYYY-MM-DD形式の日付、0円より大きい金額が必要です。');
+    const parsedDate=new Date(draft.date+'T00:00:00Z');
+    if (!Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0,10)!==draft.date) return Alert.alert('入力確認','実在する日付を入力してください。');
+    if (!confirmed) {
+      const matches=findDuplicates(draft,expenses,editingId);
+      if(matches.length || candidateKind !== 'expense') {
+        Alert.alert('保存前の確認', [candidateKind!=='expense' ? '購入以外の取引の可能性があります。支出として保存しますか？' : '', ...matches.slice(0,3).map(m=>`${m.reason}\n${m.item.date} ${m.item.storeName} ${yen(Number(m.item.amount))}`)].filter(Boolean).join('\n\n'), [{text:'戻る',style:'cancel'},{text:'別の支出として保存',onPress:()=>void submit(true)}]);
+        return;
+      }
+    }
     const item: Expense = { ...draft, id: editingId ?? Date.now().toString(), imageUri };
     busy.current = true; setSaving(true);
-    try { editingId ? await updateExpense(item) : await insertExpense(item); await refreshExpenses(); resetForm(); setQuery(''); setCategoryFilter('すべて'); setHistoryAll(true); setMonth(item.date.slice(0, 7)); setTab('home'); Alert.alert('保存しました', `${item.storeName} ${yen(Number(item.amount))}`); }
+    try { editingId ? await updateExpense(item) : await insertExpense(item); await refreshExpenses(); advance(); setQuery(''); setCategoryFilter('すべて'); setHistoryAll(true); setMonth(item.date.slice(0, 7)); if(!pending.length) setTab('home'); Alert.alert('保存しました', `${item.storeName} ${yen(Number(item.amount))}`); }
     catch { Alert.alert('保存できませんでした', '入力内容は残っています。もう一度保存してください。'); }
     finally { busy.current = false; setSaving(false); }
   };
-  const edit = (item: Expense) => { setDraft(item); setImageUri(item.imageUri); setEditingId(item.id); setTab('add'); };
+  const edit = (item: Expense) => { resetForm(); setDraft(item); setImageUri(item.imageUri); setEditingId(item.id); setTab('add'); };
   const remove = (id: string) => Alert.alert('削除しますか？', 'この支出は元に戻せません。', [{ text: 'キャンセル' }, { text: '削除', style: 'destructive', onPress: async () => { if(busy.current) return; busy.current=true; try { await deleteExpense(id); await refreshExpenses(); } catch { Alert.alert('削除できませんでした'); } finally {busy.current=false;} } }]);
   const updateSettings = async (next: AppSettings) => { try { await saveSettings(next); setSettings(next); } catch { Alert.alert('設定を保存できませんでした'); } };
 
@@ -98,7 +114,7 @@ export default function App() {
     <View style={s.header}><Text style={s.logo}>ReceiptLog</Text><Text style={s.headerMonth}>{monthLabel(month)}</Text></View>
     <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
       {tab === 'home' && <Home month={month} setMonth={setMonth} total={total} budget={settings.monthlyBudget} count={monthly.length} categories={categories} recent={expenses.slice(0,3)} setTab={setTab} />}
-      {tab === 'add' && <Add draft={draft} setDraft={setDraft} imageUri={imageUri} processing={processing || saving} editing={Boolean(editingId)} categories={settings.categories} chooseImage={chooseImage} submit={submit} reset={resetForm} cancel={cancelCapture} />}
+      {tab === 'add' && <>{pending.length>0 && <Text style={s.warning}>この取引の後に {pending.length} 件あります。1件ずつ確認してください。</Text>}{!processing && !saving && draft.rawText && <Pressable style={s.secondaryButton} onPress={advance}><Text style={s.secondaryText}>この取引をスキップ</Text></Pressable>}<Add draft={draft} setDraft={setDraft} imageUri={imageUri} processing={processing || saving} editing={Boolean(editingId)} categories={settings.categories} chooseImage={chooseImage} submit={()=>void submit()} reset={resetForm} cancel={cancelCapture} /></>}
       {tab === 'history' && <History month={month} setMonth={setMonth} all={historyAll} setAll={setHistoryAll} query={query} setQuery={setQuery} filter={categoryFilter} setFilter={setCategoryFilter} categories={settings.categories} items={filtered} edit={edit} remove={remove} />}
       {tab === 'stats' && <Stats month={month} setMonth={setMonth} total={total} categories={categories} />}
       {tab === 'settings' && <Settings settings={settings} update={updateSettings} newCategory={newCategory} setNewCategory={setNewCategory} />}
