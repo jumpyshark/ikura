@@ -20,6 +20,12 @@
       "bundler": "metro"
     },
     "plugins": [
+      ["expo-camera", {
+        "cameraPermission": "レシートを撮影するためにカメラを使用します。",
+        "recordAudioAndroid": false,
+        "microphonePermission": false,
+        "barcodeScannerEnabled": false
+      }],
       [
         "expo-image-picker",
         {

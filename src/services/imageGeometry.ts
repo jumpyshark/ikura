@@ -1,5 +1,10 @@
 export type Crop = { x:number; y:number; width:number; height:number };
 export const fullCrop = ():Crop => ({x:0,y:0,width:1,height:1});
+export function fitImage(width:number,height:number,availableWidth:number,availableHeight:number) {
+  if(Math.min(width,height,availableWidth,availableHeight)<=0) return {width:0,height:0};
+  const scale=Math.min(availableWidth/width,availableHeight/height);
+  return {width:Math.min(availableWidth,width*scale),height:Math.min(availableHeight,height*scale)};
+}
 export function validCrop(c:Crop) {
   return Object.values(c).every(Number.isFinite) && c.x>=0 && c.y>=0 && c.width>=.05 && c.height>=.05 && c.x+c.width<=1.00001 && c.y+c.height<=1.00001;
 }

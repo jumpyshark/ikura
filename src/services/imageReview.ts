@@ -20,7 +20,7 @@ const native = () => {
   return module;
 };
 export function newPhoto(uri:string, source:ReviewPhoto['source']):ReviewPhoto {
-  return {id:Date.now().toString()+Math.random().toString(36).slice(2),originalUri:uri,source,rotation:0,crop:fullCrop(),filter:source==='screenshot'?'original':'enhanced',approved:false,warnings:[]};
+  return {id:Date.now().toString()+Math.random().toString(36).slice(2),originalUri:uri,source,rotation:0,crop:fullCrop(),filter:source==='screenshot'?'original':'mono',approved:false,warnings:[]};
 }
 export async function preparePhoto(photo:ReviewPhoto, track:(uri:string)=>void):Promise<ReviewPhoto> {
   const image=await native().prepareReviewImage(photo.originalUri,photo.rotation); track(image.uri);
