@@ -1,8 +1,24 @@
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt b/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
-index a676ed9..105a0d7 100644
+index a676ed9..90804ad 100644
 --- a/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
 +++ b/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
-@@ -113,6 +113,38 @@ class ExpoTextExtractorModule : Module() {
+@@ -73,6 +73,15 @@ class ExpoTextExtractorModule : Module() {
+ 
+   override fun definition() = ModuleDefinition {
+     Name("ExpoTextExtractor")
++    AsyncFunction("prepareReviewImage") { uri: String, rotation: Int ->
++      ReceiptImageReview.prepare(appContext.reactContext!!, uri, rotation)
++    }
++    AsyncFunction("renderReviewImage") { uri: String, crop: List<Double>, filter: String ->
++      ReceiptImageReview.render(appContext.reactContext!!, uri, crop, filter)
++    }
++    AsyncFunction("removeReviewImages") { uris: List<String> ->
++      ReceiptImageReview.remove(appContext.reactContext!!, uris)
++    }
+ 
+     Constants(
+       "isSupported" to true
+@@ -113,6 +122,38 @@ class ExpoTextExtractorModule : Module() {
        }
      }
  
@@ -41,6 +57,101 @@ index a676ed9..105a0d7 100644
      /**
       * Returns the list of supported scripts on Android.
       * 
+diff --git a/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ReceiptImageReview.kt b/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ReceiptImageReview.kt
+new file mode 100644
+index 0000000..fa146dd
+--- /dev/null
++++ b/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ReceiptImageReview.kt
+@@ -0,0 +1,89 @@
++package expo.modules.textextractor
++
++import android.content.Context
++import android.graphics.*
++import android.media.ExifInterface
++import android.net.Uri
++import java.io.File
++import java.util.UUID
++import kotlin.math.*
++
++object ReceiptImageReview {
++  private fun open(context: Context, path: String) = context.contentResolver.openInputStream(
++    if (path.startsWith("/")) Uri.fromFile(File(path)) else Uri.parse(path)
++  ) ?: error("画像を開けません。もう一度選択してください。")
++
++  private fun write(context: Context, bitmap: Bitmap): String {
++    val file = File(context.cacheDir, "receipt-review-${UUID.randomUUID()}.jpg")
++    file.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.JPEG, 98, it)) }
++    return Uri.fromFile(file).toString()
++  }
++
++  fun prepare(context: Context, path: String, rotation: Int): Map<String, Any> {
++    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
++    open(context,path).use { BitmapFactory.decodeStream(it,null,options) }
++    check(options.outWidth > 0 && options.outHeight > 0)
++    var sample = 1
++    while (max(options.outWidth,options.outHeight) / sample > 3000) sample *= 2
++    val decoded = open(context,path).use { BitmapFactory.decodeStream(it,null,BitmapFactory.Options().apply { inSampleSize=sample }) } ?: error("画像を開けません。")
++    try {
++      val orientation = try { open(context,path).use { ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION,1) } } catch (_: Exception) { 1 }
++      val matrix=Matrix()
++      when(orientation) {
++        2 -> matrix.setScale(-1f,1f)
++        3 -> matrix.setRotate(180f)
++        4 -> matrix.setScale(1f,-1f)
++        5 -> { matrix.setRotate(90f); matrix.postScale(-1f,1f) }
++        6 -> matrix.setRotate(90f)
++        7 -> { matrix.setRotate(-90f); matrix.postScale(-1f,1f) }
++        8 -> matrix.setRotate(-90f)
++      }
++      matrix.postRotate((((rotation % 4)+4)%4)*90f)
++      val upright=Bitmap.createBitmap(decoded,0,0,decoded.width,decoded.height,matrix,true)
++      try {
++        val scale=min(1.0,2600.0/max(upright.width,upright.height))
++        val image=Bitmap.createScaledBitmap(upright,max(1,(upright.width*scale).toInt()),max(1,(upright.height*scale).toInt()),true)
++        try {
++          val tw=max(1,(image.width*160.0/max(image.width,image.height)).toInt())
++          val th=max(1,(image.height*160.0/max(image.width,image.height)).toInt())
++          val thumb=Bitmap.createScaledBitmap(image,tw,th,true)
++          val colors=IntArray(tw*th); thumb.getPixels(colors,0,tw,0,0,tw,th)
++          if(thumb !== image) thumb.recycle()
++          return mapOf("uri" to write(context,image),"width" to image.width,"height" to image.height,"thumbnailWidth" to tw,"thumbnailHeight" to th,
++            "pixels" to colors.map { (Color.red(it)*299+Color.green(it)*587+Color.blue(it)*114)/1000 })
++        } finally { if(image !== upright) image.recycle() }
++      } finally { if(upright !== decoded) upright.recycle() }
++    } finally { decoded.recycle() }
++  }
++
++  fun render(context: Context, path: String, crop: List<Double>, filter: String): String {
++    require(crop.size==4 && crop.all { it.isFinite() } && crop[0]>=0 && crop[1]>=0 && crop[2]>0 && crop[3]>0 && crop[0]+crop[2]<=1.00001 && crop[1]+crop[3]<=1.00001)
++    val source=open(context,path).use { BitmapFactory.decodeStream(it) } ?: error("画像を開けません。")
++    try {
++      val x=(crop[0]*source.width).toInt().coerceIn(0,source.width-1)
++      val y=(crop[1]*source.height).toInt().coerceIn(0,source.height-1)
++      val w=(crop[2]*source.width).toInt().coerceIn(1,source.width-x)
++      val h=(crop[3]*source.height).toInt().coerceIn(1,source.height-y)
++      val result=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
++      try {
++        val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
++        if(filter != "original") {
++          val matrix=ColorMatrix().apply { setSaturation(if(filter=="mono") 0f else 1f) }
++          val c=if(filter=="mono") 1.4f else 1.12f
++          val offset=128f*(1-c)+5.1f
++          matrix.postConcat(ColorMatrix(floatArrayOf(c,0f,0f,0f,offset,0f,c,0f,0f,offset,0f,0f,c,0f,offset,0f,0f,0f,1f,0f)))
++          paint.colorFilter=ColorMatrixColorFilter(matrix)
++        }
++        Canvas(result).drawBitmap(source,Rect(x,y,x+w,y+h),Rect(0,0,w,h),paint)
++        return write(context,result)
++      } finally { result.recycle() }
++    } finally { source.recycle() }
++  }
++
++  fun remove(context: Context, paths: List<String>) {
++    paths.forEach { path ->
++      val file=File(Uri.parse(path).path ?: "")
++      if(file.name.startsWith("receipt-review-") && file.parentFile?.canonicalFile==context.cacheDir.canonicalFile) file.delete()
++    }
++  }
++}
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/build/ExpoTextExtractorModule.d.ts b/node_modules/@zhanziyang/expo-text-extractor/build/ExpoTextExtractorModule.d.ts
 index 5306784..45ab82a 100644
 --- a/node_modules/@zhanziyang/expo-text-extractor/build/ExpoTextExtractorModule.d.ts
@@ -74,7 +185,7 @@ index aaa2cf0..1c127ee 100644
   * Gets the list of supported languages for text recognition.
   *
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/build/index.js b/node_modules/@zhanziyang/expo-text-extractor/build/index.js
-index 86a63e8..28e6a5b 100644
+index 50ec68d..28e6a5b 100644
 --- a/node_modules/@zhanziyang/expo-text-extractor/build/index.js
 +++ b/node_modules/@zhanziyang/expo-text-extractor/build/index.js
 @@ -40,6 +40,9 @@ export async function extractTextFromImage(uri, options) {
@@ -88,10 +199,27 @@ index 86a63e8..28e6a5b 100644
   * Gets the list of supported languages for text recognition.
   *
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/ios/ExpoTextExtractorModule.swift b/node_modules/@zhanziyang/expo-text-extractor/ios/ExpoTextExtractorModule.swift
-index a35ccb1..882824c 100644
+index a35ccb1..c455c62 100644
 --- a/node_modules/@zhanziyang/expo-text-extractor/ios/ExpoTextExtractorModule.swift
 +++ b/node_modules/@zhanziyang/expo-text-extractor/ios/ExpoTextExtractorModule.swift
-@@ -109,6 +109,51 @@ public class ExpoTextExtractorModule: Module {
+@@ -29,6 +29,16 @@ public class ExpoTextExtractorModule: Module {
+     public func definition() -> ModuleDefinition {
+         Name("ExpoTextExtractor")
+ 
++        AsyncFunction("prepareReviewImage") { (uri: String, rotation: Int) in
++            return try ReceiptImageReview.prepare(uri, rotation: rotation)
++        }
++        AsyncFunction("renderReviewImage") { (uri: String, crop: [Double], filter: String) in
++            return try ReceiptImageReview.render(uri, crop: crop, filter: filter)
++        }
++        AsyncFunction("removeReviewImages") { (uris: [String]) in
++            ReceiptImageReview.remove(uris)
++        }
++
+         Constants([
+             "isSupported": true
+         ])
+@@ -109,6 +119,51 @@ public class ExpoTextExtractorModule: Module {
              }
          }
          
@@ -143,6 +271,83 @@ index a35ccb1..882824c 100644
          /// Returns the list of supported recognition languages for the current device.
          ///
          /// - Parameter script: Optional script type to filter languages (currently unused)
+diff --git a/node_modules/@zhanziyang/expo-text-extractor/ios/ReceiptImageReview.swift b/node_modules/@zhanziyang/expo-text-extractor/ios/ReceiptImageReview.swift
+new file mode 100644
+index 0000000..b63912f
+--- /dev/null
++++ b/node_modules/@zhanziyang/expo-text-extractor/ios/ReceiptImageReview.swift
+@@ -0,0 +1,71 @@
++import UIKit
++import CoreImage
++import ImageIO
++
++enum ReceiptImageReview {
++    static func localURL(_ uri: String) throws -> URL {
++        if uri.hasPrefix("/") { return URL(fileURLWithPath: uri) }
++        if let url = URL(string: uri), url.isFileURL { return url }
++        throw NSError(domain: "ReceiptLog", code: 1, userInfo: [NSLocalizedDescriptionKey: "画像を開けません。もう一度選択してください。"])
++    }
++
++    static func write(_ image: UIImage) throws -> String {
++        let url = FileManager.default.temporaryDirectory.appendingPathComponent("receipt-review-\(UUID().uuidString).jpg")
++        guard let data = image.jpegData(compressionQuality: 0.98) else { throw NSError(domain: "ReceiptLog", code: 2) }
++        try data.write(to: url, options: .atomic)
++        return url.absoluteString
++    }
++
++    static func prepare(_ uri: String, rotation: Int) throws -> [String: Any] {
++        let url = try localURL(uri)
++        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
++              let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
++                kCGImageSourceCreateThumbnailFromImageAlways: true,
++                kCGImageSourceCreateThumbnailWithTransform: true,
++                kCGImageSourceThumbnailMaxPixelSize: 2600
++              ] as CFDictionary) else { throw NSError(domain: "ReceiptLog", code: 3) }
++        let turns = ((rotation % 4) + 4) % 4
++        let width = turns % 2 == 0 ? cg.width : cg.height
++        let height = turns % 2 == 0 ? cg.height : cg.width
++        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
++        let image = UIGraphicsImageRenderer(size: CGSize(width: CGFloat(width), height: CGFloat(height)), format: format).image { ctx in
++            ctx.cgContext.translateBy(x: CGFloat(width) / 2, y: CGFloat(height) / 2)
++            ctx.cgContext.rotate(by: CGFloat(turns) * .pi / 2)
++            UIImage(cgImage: cg).draw(in: CGRect(x: -CGFloat(cg.width)/2, y: -CGFloat(cg.height)/2, width: CGFloat(cg.width), height: CGFloat(cg.height)))
++        }
++        let tw = max(1, Int(Double(width) * 160 / Double(max(width,height))))
++        let th = max(1, Int(Double(height) * 160 / Double(max(width,height))))
++        var pixels = [UInt8](repeating: 255, count: tw * th)
++        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
++            guard let context = CGContext(data: buffer.baseAddress, width: tw, height: th, bitsPerComponent: 8, bytesPerRow: tw, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue), let normalized = image.cgImage else { return false }
++            context.draw(normalized, in: CGRect(x: 0, y: 0, width: CGFloat(tw), height: CGFloat(th)))
++            return true
++        }
++        guard drawn else { throw NSError(domain: "ReceiptLog", code: 4) }
++        return ["uri": try write(image), "width": width, "height": height, "pixels": pixels.map { Int($0) }, "thumbnailWidth": tw, "thumbnailHeight": th]
++    }
++
++    static func render(_ uri: String, crop: [Double], filter: String) throws -> String {
++        guard crop.count == 4, crop.allSatisfy({ $0.isFinite }), crop[0] >= 0, crop[1] >= 0, crop[2] > 0, crop[3] > 0, crop[0]+crop[2] <= 1.00001, crop[1]+crop[3] <= 1.00001,
++              let image = UIImage(contentsOfFile: try localURL(uri).path)?.cgImage else { throw NSError(domain: "ReceiptLog", code: 5) }
++        let rect = CGRect(x: crop[0]*Double(image.width), y: crop[1]*Double(image.height), width: crop[2]*Double(image.width), height: crop[3]*Double(image.height)).integral.intersection(CGRect(x: 0, y: 0, width: CGFloat(image.width), height: CGFloat(image.height)))
++        guard let cropped = image.cropping(to: rect) else { throw NSError(domain: "ReceiptLog", code: 6) }
++        if filter == "original" { return try write(UIImage(cgImage: cropped)) }
++        let input = CIImage(cgImage: cropped)
++        let output = input.applyingFilter("CIColorControls", parameters: [
++            kCIInputSaturationKey: filter == "mono" ? 0.0 : 1.0,
++            kCIInputContrastKey: filter == "mono" ? 1.4 : 1.12,
++            kCIInputBrightnessKey: 0.02
++        ])
++        guard let result = CIContext().createCGImage(output, from: input.extent) else { throw NSError(domain: "ReceiptLog", code: 7) }
++        return try write(UIImage(cgImage: result))
++    }
++
++    static func remove(_ uris: [String]) {
++        for uri in uris {
++            guard let url = try? localURL(uri), url.lastPathComponent.hasPrefix("receipt-review-"),
++                  url.deletingLastPathComponent().standardizedFileURL == FileManager.default.temporaryDirectory.standardizedFileURL else { continue }
++            try? FileManager.default.removeItem(at: url)
++        }
++    }
++}
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/src/ExpoTextExtractorModule.ts b/node_modules/@zhanziyang/expo-text-extractor/src/ExpoTextExtractorModule.ts
 index 048a44b..f55a8e3 100644
 --- a/node_modules/@zhanziyang/expo-text-extractor/src/ExpoTextExtractorModule.ts

@@ -3,6 +3,7 @@ import type { MerchantRule } from './database';
 import { parseReceiptText, parseStructuredReceipt, reconstructReceiptRows, type PositionedTextLine } from './parser';
 
 export type TransactionKind = 'expense' | 'income' | 'topup' | 'transfer' | 'refund' | 'pending' | 'unknown';
+export const transactionLabels:Record<TransactionKind,string>={expense:'購入・支払い',income:'入金',topup:'チャージ',transfer:'送金・振替',refund:'返金',pending:'処理中・未完了',unknown:'種別不明'};
 export type PaymentCandidate = { draft: ExpenseDraft; kind: TransactionKind };
 const datePattern = /20\d{2}\s*[年./-]\s*\d{1,2}\s*[月./-]\s*\d{1,2}日?/;
 const moneyPattern = /(?:[¥￥]\s*(-?\d[\d,]*(?:\.\d{1,2})?)|(-?\d[\d,]*(?:\.\d{1,2})?)\s*円)/g;
@@ -61,7 +62,7 @@ function parseBlock(rows: string[], rules: MerchantRule[], paymentMethod?: strin
   draft.warnings = [];
   if (!draft.amount) draft.warnings.push('支払金額を特定できません。残高・ポイントと区別して確認してください。');
   if (!draft.date || /20XX/i.test(text)) { draft.date = ''; draft.warnings.push('取引日を確認してください。年は推測していません。'); }
-  if (kind !== 'expense') draft.warnings.push(`取引種別: ${kind}。通常の購入とは限りません。支出として記録するか確認してください。`);
+  if (kind !== 'expense') draft.warnings.push(`取引種別：${transactionLabels[kind]}。通常の購入とは限りません。支出として記録するか確認してください。`);
   if (/Alipay|支付宝|CNY|RMB|元|USD|\$/i.test(text)) {
     draft.amount = '';
     draft.amountCandidates = [];
