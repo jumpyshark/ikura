@@ -1,5 +1,5 @@
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt b/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
-index a676ed9..2403209 100644
+index a676ed9..105a0d7 100644
 --- a/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
 +++ b/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
 @@ -113,6 +113,38 @@ class ExpoTextExtractorModule : Module() {
@@ -9,7 +9,7 @@ index a676ed9..2403209 100644
 +    AsyncFunction("extractStructuredTextFromImage") { uriString: String, options: RecognitionOptionsRecord?, promise: Promise ->
 +      try {
 +        val context = appContext.reactContext!!
-+        val uri = if (uriString.startsWith("content://")) Uri.parse(uriString) else Uri.fromFile(File(uriString))
++        val uri = if (uriString.startsWith("content://") || uriString.startsWith("file://")) Uri.parse(uriString) else Uri.fromFile(File(uriString))
 +        val inputImage = InputImage.fromFilePath(context, uri)
 +        getRecognizerForScript(options?.script).process(inputImage)
 +          .addOnSuccessListener { visionText ->
@@ -42,7 +42,7 @@ index a676ed9..2403209 100644
       * Returns the list of supported scripts on Android.
       * 
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/build/ExpoTextExtractorModule.d.ts b/node_modules/@zhanziyang/expo-text-extractor/build/ExpoTextExtractorModule.d.ts
-index 5306784..08bfec1 100644
+index 5306784..45ab82a 100644
 --- a/node_modules/@zhanziyang/expo-text-extractor/build/ExpoTextExtractorModule.d.ts
 +++ b/node_modules/@zhanziyang/expo-text-extractor/build/ExpoTextExtractorModule.d.ts
 @@ -2,8 +2,14 @@ import type { TextRecognitionScript, RecognitionOptions } from './types';
@@ -60,8 +60,9 @@ index 5306784..08bfec1 100644
  declare const _default: ExpoTextExtractorModule;
  export default _default;
  //# sourceMappingURL=ExpoTextExtractorModule.d.ts.map
+\ No newline at end of file
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/build/index.d.ts b/node_modules/@zhanziyang/expo-text-extractor/build/index.d.ts
-index aaa2cf0..f757b4f 100644
+index aaa2cf0..1c127ee 100644
 --- a/node_modules/@zhanziyang/expo-text-extractor/build/index.d.ts
 +++ b/node_modules/@zhanziyang/expo-text-extractor/build/index.d.ts
 @@ -35,6 +35,7 @@ export declare const isSupported: boolean;
@@ -73,30 +74,40 @@ index aaa2cf0..f757b4f 100644
   * Gets the list of supported languages for text recognition.
   *
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/build/index.js b/node_modules/@zhanziyang/expo-text-extractor/build/index.js
-index 86a63e8..c0e5b5f 100644
+index 86a63e8..28e6a5b 100644
 --- a/node_modules/@zhanziyang/expo-text-extractor/build/index.js
 +++ b/node_modules/@zhanziyang/expo-text-extractor/build/index.js
-@@ -40,6 +40,10 @@ export async function extractTextFromImage(uri, options) {
+@@ -40,6 +40,9 @@ export async function extractTextFromImage(uri, options) {
      const processedUri = uri.replace('file://', '');
      return ExpoTextExtractorModule.extractTextFromImage(processedUri, options);
  }
 +export async function extractStructuredTextFromImage(uri, options) {
-+    const processedUri = uri.replace('file://', '');
-+    return ExpoTextExtractorModule.extractStructuredTextFromImage(processedUri, options);
++    return ExpoTextExtractorModule.extractStructuredTextFromImage(uri, options);
 +}
  /**
   * Gets the list of supported languages for text recognition.
   *
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/ios/ExpoTextExtractorModule.swift b/node_modules/@zhanziyang/expo-text-extractor/ios/ExpoTextExtractorModule.swift
-index a35ccb1..25f4eaa 100644
+index a35ccb1..882824c 100644
 --- a/node_modules/@zhanziyang/expo-text-extractor/ios/ExpoTextExtractorModule.swift
 +++ b/node_modules/@zhanziyang/expo-text-extractor/ios/ExpoTextExtractorModule.swift
-@@ -109,6 +109,40 @@ public class ExpoTextExtractorModule: Module {
+@@ -109,6 +109,51 @@ public class ExpoTextExtractorModule: Module {
              }
          }
- 
-+        AsyncFunction("extractStructuredTextFromImage") { (url: URL, options: RecognitionOptions?, promise: Promise) in
+         
++        AsyncFunction("extractStructuredTextFromImage") { (uri: String, options: RecognitionOptions?, promise: Promise) in
 +            do {
++                let url: URL
++                if uri.hasPrefix("/") {
++                    url = URL(fileURLWithPath: uri)
++                } else if let fileURL = URL(string: uri), fileURL.isFileURL {
++                    url = fileURL
++                } else {
++                    throw Exception(name: "IMAGE_URI_ERROR", description: "OCR requires a local image. Please select or scan the image again.")
++                }
++                guard FileManager.default.isReadableFile(atPath: url.path) else {
++                    throw Exception(name: "IMAGE_FILE_UNAVAILABLE", description: "The image is no longer accessible. Please select or scan it again.")
++                }
 +                let imageData = try Data(contentsOf: url)
 +                guard let image = UIImage(data: imageData), let cgImage = image.cgImage else {
 +                    throw Exception(name: "IMAGE_LOAD_ERROR", description: "Failed to load image from URL")
@@ -152,10 +163,10 @@ index 048a44b..f55a8e3 100644
 +
  export default requireNativeModule<ExpoTextExtractorModule>('ExpoTextExtractor');
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/src/index.ts b/node_modules/@zhanziyang/expo-text-extractor/src/index.ts
-index 0414ee2..e8655c7 100644
+index 0414ee2..50b19f6 100644
 --- a/node_modules/@zhanziyang/expo-text-extractor/src/index.ts
 +++ b/node_modules/@zhanziyang/expo-text-extractor/src/index.ts
-@@ -48,6 +48,14 @@ export async function extractTextFromImage(
+@@ -48,6 +48,13 @@ export async function extractTextFromImage(
    return ExpoTextExtractorModule.extractTextFromImage(processedUri, options);
  }
  
@@ -163,8 +174,7 @@ index 0414ee2..e8655c7 100644
 +  uri: string,
 +  options?: RecognitionOptions
 +) {
-+  const processedUri = uri.replace('file://', '');
-+  return ExpoTextExtractorModule.extractStructuredTextFromImage(processedUri, options);
++  return ExpoTextExtractorModule.extractStructuredTextFromImage(uri, options);
 +}
 +
  /**
