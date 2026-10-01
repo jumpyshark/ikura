@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePaymentText } from '../src/services/payments';
+import { parsePaymentText, detectPaymentProvider } from '../src/services/payments';
 import { findDuplicates } from '../src/services/duplicates';
 
 test('PayPay detail: single currency amount, not status clock',()=>{
@@ -39,4 +39,11 @@ test('duplicate review: exact, nearby posting date, different amount, edit exclu
  const draft=parsePaymentText(['ご利用店名 ローソン横浜店','2026/09/10','ご利用金額 780円'])[0]!.draft;
  const saved=[{...draft,id:'1'},{...draft,id:'2',date:'2026-09-12'},{...draft,id:'3',amount:'781'}];
  assert.equal(findDuplicates(draft,saved)[0]!.level,'strong'); assert.equal(findDuplicates(draft,saved).length,2); assert.equal(findDuplicates(draft,saved,'1').length,1);
+});
+test('detects additional payment providers correctly',()=>{
+ assert.equal(detectPaymentProvider('au PAY 決済完了 500円'), 'au PAY');
+ assert.equal(detectPaymentProvider('Suica残高 支払い'), 'Suica');
+ assert.equal(detectPaymentProvider('ご利用カード: VISA 1,200円'), 'Visa');
+ assert.equal(detectPaymentProvider('JCBカードご利用明細'), 'JCB');
+ assert.equal(detectPaymentProvider('メルペイあと払い'), 'メルペイ');
 });
