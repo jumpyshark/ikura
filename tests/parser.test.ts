@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseReceiptText, parseStructuredReceipt, reconstructReceiptRows } from '../src/services/parser';
+import { detectDate, parseReceiptText, parseStructuredReceipt, reconstructReceiptRows } from '../src/services/parser';
 import type { MerchantRule } from '../src/services/database';
 
 const merchants: MerchantRule[] = [
@@ -89,4 +89,23 @@ test('handles zero change and ambiguous cash values',()=>{
   assert.ok(!zero.warnings?.some(w=>w.includes('違い')));
   const ambiguous=parseStructuredReceipt(positionedRows(['テスト店','合計 ¥460','お預り ¥510','お預り ¥1000','お釣り ¥50']));
   assert.ok(!ambiguous.warnings?.some(w=>w.includes('違い')));
+});
+
+test('parses Japanese Wareki dates correctly',()=>{
+  assert.equal(detectDate('令和6年9月10日').value, '2024-09-10');
+  assert.equal(detectDate('R6.09.10').value, '2024-09-10');
+  assert.equal(detectDate('平成30年5月15日').value, '2018-05-15');
+});
+
+test('repairs OCR digit misreads in currency context',()=>{
+  const result=parseReceiptText(['テスト商店','2026-09-10','お買上金額 ¥1,O0O'],merchants);
+  assert.equal(result.amount, '1000');
+  assert.equal(result.storeName, 'テスト商店');
+});
+
+test('ignores tax registration numbers and invoice headers for store names',()=>{
+  const result=parseReceiptText(['適格請求書','登録番号 T1234567890123','太陽カフェ','2026-09-10','請求額 850円'],merchants);
+  assert.equal(result.storeName, '太陽カフェ');
+  assert.equal(result.category, '食費');
+  assert.equal(result.amount, '850');
 });
