@@ -32,6 +32,10 @@ npm run web
 # 実機OCR用（Expoアカウントが必要）
 npx eas-cli login
 npx eas-cli build --profile development --platform android
+
+# APKファイルのビルド（プレビュー・インストール用）
+npm run build:apk
+# または: npx eas-cli build --profile preview --platform android
 ```
 
 ## AIフォールバック
