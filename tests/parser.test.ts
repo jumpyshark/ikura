@@ -40,10 +40,12 @@ test('detects known drugstore category',()=>{
   assert.equal(result.amount,'1500');
 });
 
-test('leaves conflicting final totals for confirmation',()=>{
+test('selects the likeliest conflicting total and marks it for confirmation',()=>{
   const result=parseReceiptText(['テスト店','合計 ¥500','お会計 ¥800'],merchants);
-  assert.equal(result.amount,'');
+  assert.equal(result.amount,'800');
   assert.deepEqual(result.amountCandidates?.sort(),['500','800']);
+  assert.ok(result.fieldConfidence!.amount < 0.6);
+  assert.ok(result.warnings?.some(w=>w.includes('確認')));
 });
 
 test('reconstructs receipt columns before selecting the total',()=>{

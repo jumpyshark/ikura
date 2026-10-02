@@ -344,7 +344,8 @@ export function detectTotal(lines: string[]): { value: string; confidence: numbe
 
   const isAmbiguous = ranked[1] && (ranked[0]!.score - ranked[1].score < 18);
   return {
-    value: isAmbiguous ? '' : String(ranked[0]!.value),
+    // Keep the best candidate selected so confirmation needs correction only when it is wrong.
+    value: String(ranked[0]!.value),
     confidence: isAmbiguous ? 0.45 : Math.min(ranked[0]!.score / 132, 1),
     candidates: ranked.slice(0, 3).map((c) => String(c.value)),
   };
@@ -372,8 +373,8 @@ export function parseReceiptText(rawLines: string[], merchantRules: MerchantRule
       warnings.push('日付が2年以上前です。確認してください。');
     }
   }
-  if (total.candidates.length > 1 && !total.value) {
-    warnings.push('合計金額の候補が複数あります。');
+  if (total.candidates.length > 1 && total.confidence < 0.6) {
+    warnings.push('最も可能性の高い金額を選びました。確認してください。');
   }
   if (!total.value) {
     warnings.push('合計金額を確認してください。');

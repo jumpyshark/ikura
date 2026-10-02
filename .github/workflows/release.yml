@@ -1,4 +1,4 @@
-name: Publish downloadable mobile release
+name: Publish mobile release (APK + IPA)
 
 on:
   workflow_dispatch:

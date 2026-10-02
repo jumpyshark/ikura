@@ -101,7 +101,7 @@ export default function App() {
     <View style={s.header}><Text style={s.logo}>ReceiptLog</Text></View>
     <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
       {tab === 'home' && <Home month={month} setMonth={setMonth} total={total} budget={settings.monthlyBudget} count={monthly.length} categories={categories} recent={expenses.slice(0,3)} setTab={setTab} />}
-      {tab === 'add' && <>{pending.length>0 && <Text style={s.warning}>この取引の後に {pending.length} 件あります。1件ずつ確認してください。</Text>}{!processing && !saving && imageUri && !editingId && <Pressable style={s.secondaryButton} onPress={()=>advance()}><Text style={s.secondaryText}>この取引をスキップ</Text></Pressable>}<Add draft={draft} setDraft={setDraft} imageUri={imageUri} processing={processing || saving} editing={Boolean(editingId)} categories={settings.categories} chooseImage={chooseImage} submit={()=>void submit()} reset={cancelCapture} cancel={cancelCapture} /></>}
+      {tab === 'add' && <Add draft={draft} setDraft={setDraft} imageUri={imageUri} processing={processing || saving} editing={Boolean(editingId)} categories={settings.categories} chooseImage={chooseImage} submit={()=>void submit()} reset={cancelCapture} cancel={cancelCapture} pendingCount={pending.length} skip={!processing&&!saving&&imageUri&&!editingId?()=>advance():undefined} />}
       {tab === 'history' && <History month={month} setMonth={setMonth} all={historyAll} setAll={setHistoryAll} query={query} setQuery={setQuery} filter={categoryFilter} setFilter={setCategoryFilter} categories={settings.categories} items={filtered} edit={edit} remove={remove} />}
       {tab === 'stats' && <Stats month={month} setMonth={setMonth} total={total} categories={categories} />}
       {tab === 'settings' && <Settings settings={settings} update={updateSettings} newCategory={newCategory} setNewCategory={setNewCategory} />}
@@ -127,14 +127,14 @@ function Home({ month, setMonth, total, budget, count, categories, recent, setTa
     <Title text="最近保存した支出" />{recent.length?recent.map(item=><View key={item.id} style={s.expense}><View style={{flex:1}}><Text style={s.expenseStore}>{item.storeName}</Text><Text style={s.expenseMeta}>{item.date} · {item.category}</Text></View><Text style={s.expenseAmount}>{yen(Number(item.amount))}</Text></View>):<Empty text="保存した支出はありません。"/>}</>;
 }
 
-function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,submit,reset,cancel}:{draft:ExpenseDraft;setDraft:(d:ExpenseDraft)=>void;imageUri?:string;processing:boolean;editing:boolean;categories:string[];chooseImage:(c:boolean)=>void;submit:()=>void;reset:()=>void;cancel:()=>void}) {
+function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,submit,reset,cancel,pendingCount,skip}:{draft:ExpenseDraft;setDraft:(d:ExpenseDraft)=>void;imageUri?:string;processing:boolean;editing:boolean;categories:string[];chooseImage:(c:boolean)=>void;submit:()=>void;reset:()=>void;cancel:()=>void;pendingCount:number;skip?:()=>void}) {
   const set=(key:keyof ExpenseDraft,value:string)=>setDraft({...draft,[key]:value});
   const [showOcrDump, setShowOcrDump] = useState(false);
   const [showOptional, setShowOptional] = useState(false);
   const isComplete = Boolean(draft.storeName.trim() && draft.date.trim() && draft.amount.trim());
 
   return <View style={s.addContainer}>
-    <View style={s.addHeading}><Text style={s.addTitle}>{editing?'編集':imageUri?'内容を確認':'手入力'}</Text>{imageUri&&<Text style={s.addStep}>最後に3項目を確認</Text>}</View>
+    <View style={s.addHeading}><View><Text style={s.addTitle}>{editing?'編集':imageUri?'内容を確認':'手入力'}</Text>{pendingCount>0&&<Text style={s.batchNote}>残り {pendingCount}件</Text>}</View>{skip&&<Pressable accessibilityRole="button" onPress={skip} style={s.skipButton}><Text style={s.skipText}>スキップ →</Text></Pressable>}</View>
 
     {!editing && !imageUri && <View style={s.quickRow}>
       <Quick label="写真を撮る" onPress={()=>chooseImage(true)}/>
@@ -162,13 +162,9 @@ function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,
     </View>}
 
     {!processing && <View style={s.card}>
-      {draft.rawText ? <View style={[s.confidenceBanner, !isComplete && s.lowBanner]}>
-        <Text style={[s.confidenceText, !isComplete && s.lowText]}>
-          {!isComplete ? '⚠️ 未入力の項目があります。確認・選択してください。' : '✨ 自動読み取り完了。内容を確認して保存してください。'}
-        </Text>
-      </View> : null}
+      {draft.rawText && !isComplete ? <Text style={s.formNotice}>未入力の項目を確認してください。</Text> : null}
 
-      {draft.warnings?.map(w=><Text key={w} style={s.warning}>{w}</Text>)}
+      {draft.warnings?.map(w=><Text key={w} style={s.formNotice}>{w}</Text>)}
 
       <Field label="店舗名" value={draft.storeName} onChange={v=>set('storeName',v)} required/>
 
@@ -177,7 +173,7 @@ function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,
           <Field label="日付" value={draft.date} onChange={v=>set('date',v)} required/>
         </View>
         <View style={s.halfField}>
-          <Field label="金額 (円)" value={draft.amount} onChange={v=>set('amount',v)} numeric required/>
+          <Field label="金額 (円)" value={draft.amount} onChange={v=>set('amount',v)} numeric required attention={Boolean(draft.amount&&draft.fieldConfidence&&draft.fieldConfidence.amount<0.6)}/>
         </View>
       </View>
 
@@ -251,7 +247,7 @@ function Settings({settings,update,newCategory,setNewCategory}:{settings:AppSett
 }
 
 function MonthNav({month,setMonth}:{month:string;setMonth:(m:string)=>void}) { return <View style={s.monthNav}><Pressable onPress={()=>setMonth(shiftMonth(month,-1))}><Text style={s.monthArrow}>‹</Text></Pressable><Text style={s.monthTitle}>{monthLabel(month)}</Text><Pressable onPress={()=>setMonth(shiftMonth(month,1))}><Text style={s.monthArrow}>›</Text></Pressable></View>; }
-function Field({label,value,onChange,numeric=false,required=false}:{label:string;value:string;onChange:(v:string)=>void;numeric?:boolean;required?:boolean}) { return <View style={s.field}><Text style={s.label}>{label}{required&&!value.trim()?'（入力が必要です）':''}</Text><TextInput accessibilityLabel={label} style={[s.input,required&&!value.trim()&&{borderColor:'#c06030'}]} value={value} onChangeText={onChange} keyboardType={numeric?'numeric':'default'}/></View>; }
+function Field({label,value,onChange,numeric=false,required=false,attention=false}:{label:string;value:string;onChange:(v:string)=>void;numeric?:boolean;required?:boolean;attention?:boolean}) { return <View style={s.field}><Text style={s.label}>{label}{required&&!value.trim()?'（入力が必要です）':''}{attention?'（要確認）':''}</Text><TextInput accessibilityLabel={label} style={[s.input,(required&&!value.trim()||attention)&&s.inputAttention]} value={value} onChangeText={onChange} keyboardType={numeric?'numeric':'default'}/></View>; }
 function Title({text}:{text:string}) { return <Text style={s.title}>{text}</Text>; }
 function Quick({label,onPress,secondary=false}:{label:string;onPress:()=>void;secondary?:boolean}) { return <Pressable style={[s.quick,secondary&&s.quickSecondary]} onPress={onPress}><Text style={[s.quickText,secondary&&s.quickTextSecondary]}>{label}</Text></Pressable>; }
 function Chip({label,active,onPress}:{label:string;active:boolean;onPress:()=>void}) { return <Pressable style={[s.chip,active&&s.chipActive]} onPress={onPress}><Text style={[s.chipText,active&&s.chipTextActive]}>{label}</Text></Pressable>; }
@@ -267,7 +263,7 @@ const s=StyleSheet.create({
   cameraIcon:{width:25,height:18,borderWidth:2,borderColor:'white',borderRadius:4,alignItems:'center',justifyContent:'center'},cameraTop:{position:'absolute',top:-6,width:11,height:6,borderTopLeftRadius:3,borderTopRightRadius:3,backgroundColor:'white'},cameraLens:{width:8,height:8,borderRadius:4,borderWidth:2,borderColor:'white'},
   photoIcon:{width:25,height:21,borderWidth:2,borderColor:'#0f766e',borderRadius:3,overflow:'hidden'},photoSun:{position:'absolute',width:5,height:5,borderRadius:3,backgroundColor:'#0f766e',right:4,top:4},photoMountainLeft:{position:'absolute',width:17,height:17,borderWidth:2,borderColor:'#0f766e',transform:[{rotate:'45deg'}],left:-3,top:12},photoMountainRight:{position:'absolute',width:12,height:12,borderWidth:2,borderColor:'#0f766e',transform:[{rotate:'45deg'}],right:-2,top:13},
   addContainer:{gap:12},
-  addHeading:{flexDirection:'row',alignItems:'baseline',justifyContent:'space-between'},addTitle:{fontSize:24,fontWeight:'900',color:'#193b35'},addStep:{fontSize:12,color:'#71807d'},
+  addHeading:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},addTitle:{fontSize:24,fontWeight:'900',color:'#193b35'},batchNote:{fontSize:12,color:'#71807d',marginTop:3},skipButton:{paddingVertical:9,paddingHorizontal:11},skipText:{fontSize:13,color:'#68716e',fontWeight:'700'},formNotice:{color:'#9a572e',fontSize:12,lineHeight:18,marginBottom:6},inputAttention:{borderColor:'#d94d3f',borderWidth:2,backgroundColor:'#fffafa'},
   imageCard:{flexDirection:'row',backgroundColor:'white',padding:12,borderRadius:16,alignItems:'center',gap:14,marginBottom:10,borderWidth:1,borderColor:'#e2e9e6'},
   compactPreview:{width:80,height:100,borderRadius:10,backgroundColor:'#e4ebe8'},
   imageCardInfo:{flex:1,justifyContent:'center'},
