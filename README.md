@@ -42,6 +42,28 @@ npm run build:apk
 
 AIは初期状態で無効です。APIキーをアプリへ埋め込まず、認証付きサーバーを用意して`.env`の`EXPO_PUBLIC_AI_FALLBACK_URL`へURLだけを設定します。信頼度75%未満のOCR結果だけが対象になり、AI利用後も確認画面を必ず通ります。
 
+## GitHub Actionsとリリース
+
+APK/IPAのビルドはプルリクエストや`main`へのマージでは自動実行されません。必要なときだけGitHubのActions画面から個別のビルドを手動実行できます。
+
+ダウンロード可能な配布物は、Actions画面から次のいずれかを手動実行して作成できます。
+
+- **Publish Android release (APK only)**: Androidだけをビルドし、`ReceiptLog.apk`を公開します。
+- **Publish iOS release (unsigned IPA only)**: iOSだけをビルドし、`ReceiptLog-unsigned.ipa`を公開します。
+- **Publish mobile release (APK + IPA)**: 両方をビルドしてまとめて公開します。
+
+各ワークフローで`v1.0.0`のようなリリースタグを入力します。APKとIPAを別々に実行するときも同じタグを指定すれば、同じGitHub Releaseへ両方のファイルを追加できます。同じプラットフォームを同じタグで再実行すると、その添付ファイルだけが置き換わります。
+
+IPAは未署名です。そのままApp Store経由でインストールすることはできず、別途署名または対応したサイドロード手順が必要です。
+
+### Androidビルドの警告を確認する
+
+`Deprecated Gradle features were used in this build, making it incompatible with Gradle 10`は、Gradle 9が依存プラグインの将来の非互換性を知らせる警告であり、それ自体はビルド失敗の原因ではありません。Androidワークフローは`--warning-mode all`と`--stacktrace`を使用し、実際に失敗した処理と個別の非推奨警告をログへ出力します。失敗時にはActions実行画面のArtifactsから`android-gradle-build-log`をダウンロードできます。ログ内で最初に現れる`FAILURE:`または`What went wrong:`の内容を確認してください。
+
+### CaptureFlowの競合を解決する
+
+`src/components/CaptureFlow.tsx`で競合した場合は、短い「自動補正済み」表示、プレビュー直後の「この画像を使う」、必要な場合だけ表示する前後移動、インラインスタイルの「この撮影を破棄」を含む新しいUI側を残します。`s.discard`を参照する古い側は残さないでください。競合マーカーをすべて削除した後、`npm run typecheck`と`npm run test:parser`を実行します。テストは未解決の競合マーカーと古いdiscardスタイル参照も検出します。
+
 ## 今後の改善
 
 1. 実レシートのテストデータ追加と抽出ルール改善
