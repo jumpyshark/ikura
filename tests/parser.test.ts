@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { detectDate, parseReceiptText, parseStructuredReceipt, reconstructReceiptRows } from '../src/services/parser';
+import { amounts, detectDate, parseReceiptText, parseStructuredReceipt, reconstructReceiptRows } from '../src/services/parser';
 import type { MerchantRule } from '../src/services/database';
 
 const merchants: MerchantRule[] = [
@@ -108,4 +108,22 @@ test('ignores tax registration numbers and invoice headers for store names',()=>
   assert.equal(result.storeName, '太陽カフェ');
   assert.equal(result.category, '食費');
   assert.equal(result.amount, '850');
+});
+
+test('prioritizes known merchants even when their names span OCR lines',()=>{
+  const yodobashi=parseReceiptText(['領収書','株式会社ヨドバシ','カメラ 新宿西口店','2026/09/10','合計 6,700円']);
+  assert.equal(yodobashi.storeName,'ヨドバシカメラ');
+  assert.equal(yodobashi.category,'その他');
+
+  const bic=parseReceiptText(['ビッグ','カメラ 有楽町店','2026/09/10','お会計 2,480円']);
+  assert.equal(bic.storeName,'ビックカメラ');
+
+  const seven=parseReceiptText(['7-11','港区一丁目店','2026/09/10','合計 780円']);
+  assert.equal(seven.storeName,'セブン-イレブン');
+  assert.equal(seven.category,'食費');
+});
+
+test('reads OCR spaces used in place of thousands separators',()=>{
+  assert.deepEqual(amounts('お会計 ¥6 700'),[{value:6700,currency:true}]);
+  assert.equal(parseReceiptText(['ヨドバシ カメラ','2026/09/10','合計 6 700 円']).amount,'6700');
 });
