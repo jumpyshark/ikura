@@ -98,25 +98,23 @@ export default function App() {
 
   if (!ready) return <SafeAreaProvider><SafeAreaView style={s.safe}><ActivityIndicator /><Text>保存済みデータを読み込み中…</Text></SafeAreaView></SafeAreaProvider>;
   return <SafeAreaProvider><SafeAreaView style={s.safe} edges={['top','left','right']}><StatusBar style="dark" />
-    <View style={s.header}><Text style={s.logo}>ReceiptLog</Text><Text style={s.headerMonth}>{monthLabel(month)}</Text></View>
+    <View style={s.header}><Text style={s.logo}>ReceiptLog</Text></View>
     <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
       {tab === 'home' && <Home month={month} setMonth={setMonth} total={total} budget={settings.monthlyBudget} count={monthly.length} categories={categories} recent={expenses.slice(0,3)} setTab={setTab} />}
-      {tab === 'add' && <>{pending.length>0 && <Text style={s.warning}>この取引の後に {pending.length} 件あります。1件ずつ確認してください。</Text>}{!processing && !saving && imageUri && !editingId && <Pressable style={s.secondaryButton} onPress={()=>advance()}><Text style={s.secondaryText}>この取引をスキップ</Text></Pressable>}<Add draft={draft} setDraft={setDraft} imageUri={imageUri} processing={processing || saving} editing={Boolean(editingId)} categories={settings.categories} chooseImage={chooseImage} submit={()=>void submit()} reset={cancelCapture} cancel={cancelCapture} /></>}
+      {tab === 'add' && <Add draft={draft} setDraft={setDraft} imageUri={imageUri} processing={processing || saving} editing={Boolean(editingId)} categories={settings.categories} chooseImage={chooseImage} submit={()=>void submit()} reset={cancelCapture} cancel={cancelCapture} pendingCount={pending.length} skip={!processing&&!saving&&imageUri&&!editingId?()=>advance():undefined} />}
       {tab === 'history' && <History month={month} setMonth={setMonth} all={historyAll} setAll={setHistoryAll} query={query} setQuery={setQuery} filter={categoryFilter} setFilter={setCategoryFilter} categories={settings.categories} items={filtered} edit={edit} remove={remove} />}
       {tab === 'stats' && <Stats month={month} setMonth={setMonth} total={total} categories={categories} />}
       {tab === 'settings' && <Settings settings={settings} update={updateSettings} newCategory={newCategory} setNewCategory={setNewCategory} />}
     </ScrollView>
     <View style={s.fabContainer} pointerEvents="box-none">
       <Pressable accessibilityLabel="カメラで撮影" style={s.fabButton} onPress={openCamera}>
-        <Text style={s.fabIcon}>📷</Text>
-        <Text style={s.fabLabel}>カメラ</Text>
+        <FabIcon kind="camera" />
       </Pressable>
       <Pressable accessibilityLabel="写真を選択" style={[s.fabButton, s.fabGallery]} onPress={openGallery}>
-        <Text style={s.fabIcon}>🖼️</Text>
-        <Text style={s.fabLabel}>写真</Text>
+        <FabIcon kind="photo" />
       </Pressable>
     </View>
-    <SafeAreaView style={s.navSafe} edges={['bottom']}><View style={s.nav}>{([['home','ホーム'],['add','追加'],['history','履歴'],['stats','分析'],['settings','設定']] as [Tab,string][]).map(([key,label]) => <Pressable key={key} style={s.navItem} onPress={() => { if(busy.current) return; setTab(key); }}><Text style={[s.navText, tab === key && s.navActive]}>{label}</Text></Pressable>)}</View></SafeAreaView>
+    <SafeAreaView style={s.navSafe} edges={['bottom']}><View style={s.nav}>{([['home','ホーム'],['history','履歴'],['stats','分析'],['settings','設定']] as [Tab,string][]).map(([key,label]) => <Pressable key={key} style={s.navItem} onPress={() => { if(busy.current) return; setTab(key); }}><Text style={[s.navText, tab === key && s.navActive]}>{label}</Text>{tab===key&&<View style={s.navDot}/>}</Pressable>)}</View></SafeAreaView>
     <CaptureFlow key={captureSession} visible={captureVisible} entry={captureEntry} focusUri={imageUri} onClose={()=>setCaptureVisible(false)} onDiscard={resetForm} onComplete={acceptImages} aiEnabled={settings.aiFallbackEnabled} onDirty={setCaptureDirty}/>
   </SafeAreaView></SafeAreaProvider>;
 }
@@ -124,18 +122,19 @@ export default function App() {
 function Home({ month, setMonth, total, budget, count, categories, recent, setTab }: { month:string; setMonth:(m:string)=>void; total:number; budget:number; count:number; categories:{name:string;value:number}[]; recent:Expense[]; setTab:(t:Tab)=>void }) {
   const left = budget - total, ratio = budget ? Math.min(total / budget, 1) : 0;
   return <><MonthNav month={month} setMonth={setMonth}/><Text style={s.eyebrow}>{monthLabel(month)}の支出</Text><View style={s.hero}><Text style={s.heroAmount}>{yen(total)}</Text><Text style={s.heroMeta}>{count}件 · 予算残り {yen(left)}</Text><View style={s.progress}><View style={[s.progressFill,{width:`${ratio*100}%`}]} /></View></View>
-    <View style={s.quickRow}><Quick label="OCRで追加" onPress={()=>setTab('add')} /><Quick label="月別履歴" onPress={()=>setTab('history')} /></View>
+    <View style={s.quickRow}><Quick label="手入力で追加" onPress={()=>setTab('add')} secondary/><Quick label="履歴を見る" onPress={()=>setTab('history')} secondary/></View>
     <Title text="カテゴリ別" />{categories.length ? categories.slice(0,5).map((x)=><Bar key={x.name} {...x} max={total}/>) : <Empty text="この月の支出はまだありません。" />}
     <Title text="最近保存した支出" />{recent.length?recent.map(item=><View key={item.id} style={s.expense}><View style={{flex:1}}><Text style={s.expenseStore}>{item.storeName}</Text><Text style={s.expenseMeta}>{item.date} · {item.category}</Text></View><Text style={s.expenseAmount}>{yen(Number(item.amount))}</Text></View>):<Empty text="保存した支出はありません。"/>}</>;
 }
 
-function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,submit,reset,cancel}:{draft:ExpenseDraft;setDraft:(d:ExpenseDraft)=>void;imageUri?:string;processing:boolean;editing:boolean;categories:string[];chooseImage:(c:boolean)=>void;submit:()=>void;reset:()=>void;cancel:()=>void}) {
+function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,submit,reset,cancel,pendingCount,skip}:{draft:ExpenseDraft;setDraft:(d:ExpenseDraft)=>void;imageUri?:string;processing:boolean;editing:boolean;categories:string[];chooseImage:(c:boolean)=>void;submit:()=>void;reset:()=>void;cancel:()=>void;pendingCount:number;skip?:()=>void}) {
   const set=(key:keyof ExpenseDraft,value:string)=>setDraft({...draft,[key]:value});
   const [showOcrDump, setShowOcrDump] = useState(false);
+  const [showOptional, setShowOptional] = useState(false);
   const isComplete = Boolean(draft.storeName.trim() && draft.date.trim() && draft.amount.trim());
 
   return <View style={s.addContainer}>
-    <Title text={editing?'支出を編集':imageUri?'支出の確認':'支出を追加'} />
+    <View style={s.addHeading}><View><Text style={s.addTitle}>{editing?'編集':imageUri?'内容を確認':'手入力'}</Text>{pendingCount>0&&<Text style={s.batchNote}>残り {pendingCount}件</Text>}</View>{skip&&<Pressable accessibilityRole="button" onPress={skip} style={s.skipButton}><Text style={s.skipText}>スキップ →</Text></Pressable>}</View>
 
     {!editing && !imageUri && <View style={s.quickRow}>
       <Quick label="写真を撮る" onPress={()=>chooseImage(true)}/>
@@ -163,13 +162,9 @@ function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,
     </View>}
 
     {!processing && <View style={s.card}>
-      {draft.rawText ? <View style={[s.confidenceBanner, !isComplete && s.lowBanner]}>
-        <Text style={[s.confidenceText, !isComplete && s.lowText]}>
-          {!isComplete ? '⚠️ 未入力の項目があります。確認・選択してください。' : '✨ 自動読み取り完了。内容を確認して保存してください。'}
-        </Text>
-      </View> : null}
+      {draft.rawText && !isComplete ? <Text style={s.formNotice}>未入力の項目を確認してください。</Text> : null}
 
-      {draft.warnings?.map(w=><Text key={w} style={s.warning}>{w}</Text>)}
+      {draft.warnings?.map(w=><Text key={w} style={s.formNotice}>{w}</Text>)}
 
       <Field label="店舗名" value={draft.storeName} onChange={v=>set('storeName',v)} required/>
 
@@ -178,7 +173,7 @@ function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,
           <Field label="日付" value={draft.date} onChange={v=>set('date',v)} required/>
         </View>
         <View style={s.halfField}>
-          <Field label="金額 (円)" value={draft.amount} onChange={v=>set('amount',v)} numeric required/>
+          <Field label="金額 (円)" value={draft.amount} onChange={v=>set('amount',v)} numeric required attention={Boolean(draft.amount&&draft.fieldConfidence&&draft.fieldConfidence.amount<0.6)}/>
         </View>
       </View>
 
@@ -191,29 +186,30 @@ function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,
         </View>
       </View>}
 
-      <View style={s.fieldRow}>
-        <View style={s.halfField}>
-          <Field label="支払方法" value={draft.paymentMethod} onChange={v=>set('paymentMethod',v)}/>
-        </View>
-        <View style={s.halfField}>
-          <Field label="メモ" value={draft.note} onChange={v=>set('note',v)}/>
-        </View>
-      </View>
-
       <Text style={s.label}>カテゴリ</Text>
-      <View style={s.chips}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipStrip}>
         {categories.map(c=><Chip key={c} label={c} active={draft.category===c} onPress={()=>set('category',c)}/>)}
-      </View>
+      </ScrollView>
 
-      <View style={s.inlineRow}>
-        <Text style={[s.label, {marginBottom: 0}]}>種類: </Text>
-        <Chip label="紙レシート" active={draft.sourceType==='receipt'} onPress={()=>setDraft({...draft,sourceType:'receipt'})}/>
-        <Chip label="決済画面" active={draft.sourceType==='payment_screenshot'} onPress={()=>setDraft({...draft,sourceType:'payment_screenshot'})}/>
-      </View>
-
-      <Pressable style={s.primary} onPress={submit}>
-        <Text style={s.primaryText}>確認して保存</Text>
+      <Pressable accessibilityRole="button" style={[s.primary,!isComplete&&s.primaryDisabled]} onPress={submit}>
+        <Text style={s.primaryText}>{editing?'変更を保存':'この内容で保存'}</Text>
       </Pressable>
+
+      <Pressable accessibilityRole="button" style={s.disclosure} onPress={()=>setShowOptional(!showOptional)}>
+        <View><Text style={s.disclosureTitle}>支払方法・メモなど</Text><Text style={s.disclosureSummary}>{draft.paymentMethod || '未設定'}{draft.note ? ` · ${draft.note}` : ' · 任意'}</Text></View>
+        <Text style={s.disclosureArrow}>{showOptional?'▲':'▼'}</Text>
+      </Pressable>
+      {showOptional && <View style={s.optionalPanel}>
+        <View style={s.fieldRow}>
+          <View style={s.halfField}><Field label="支払方法" value={draft.paymentMethod} onChange={v=>set('paymentMethod',v)}/></View>
+          <View style={s.halfField}><Field label="メモ" value={draft.note} onChange={v=>set('note',v)}/></View>
+        </View>
+        <Text style={s.label}>画像の種類</Text>
+        <View style={s.chips}>
+          <Chip label="紙レシート" active={draft.sourceType==='receipt'} onPress={()=>setDraft({...draft,sourceType:'receipt'})}/>
+          <Chip label="決済画面" active={draft.sourceType==='payment_screenshot'} onPress={()=>setDraft({...draft,sourceType:'payment_screenshot'})}/>
+        </View>
+      </View>}
 
       <Pressable onPress={editing?reset:cancel}>
         <Text style={s.cancel}>{editing?'編集をキャンセル':'入力をキャンセル'}</Text>
@@ -251,21 +247,23 @@ function Settings({settings,update,newCategory,setNewCategory}:{settings:AppSett
 }
 
 function MonthNav({month,setMonth}:{month:string;setMonth:(m:string)=>void}) { return <View style={s.monthNav}><Pressable onPress={()=>setMonth(shiftMonth(month,-1))}><Text style={s.monthArrow}>‹</Text></Pressable><Text style={s.monthTitle}>{monthLabel(month)}</Text><Pressable onPress={()=>setMonth(shiftMonth(month,1))}><Text style={s.monthArrow}>›</Text></Pressable></View>; }
-function Field({label,value,onChange,numeric=false,required=false}:{label:string;value:string;onChange:(v:string)=>void;numeric?:boolean;required?:boolean}) { return <View style={s.field}><Text style={s.label}>{label}{required&&!value.trim()?'（入力が必要です）':''}</Text><TextInput accessibilityLabel={label} style={[s.input,required&&!value.trim()&&{borderColor:'#c06030'}]} value={value} onChangeText={onChange} keyboardType={numeric?'numeric':'default'}/></View>; }
+function Field({label,value,onChange,numeric=false,required=false,attention=false}:{label:string;value:string;onChange:(v:string)=>void;numeric?:boolean;required?:boolean;attention?:boolean}) { return <View style={s.field}><Text style={s.label}>{label}{required&&!value.trim()?'（入力が必要です）':''}{attention?'（要確認）':''}</Text><TextInput accessibilityLabel={label} style={[s.input,(required&&!value.trim()||attention)&&s.inputAttention]} value={value} onChangeText={onChange} keyboardType={numeric?'numeric':'default'}/></View>; }
 function Title({text}:{text:string}) { return <Text style={s.title}>{text}</Text>; }
 function Quick({label,onPress,secondary=false}:{label:string;onPress:()=>void;secondary?:boolean}) { return <Pressable style={[s.quick,secondary&&s.quickSecondary]} onPress={onPress}><Text style={[s.quickText,secondary&&s.quickTextSecondary]}>{label}</Text></Pressable>; }
 function Chip({label,active,onPress}:{label:string;active:boolean;onPress:()=>void}) { return <Pressable style={[s.chip,active&&s.chipActive]} onPress={onPress}><Text style={[s.chipText,active&&s.chipTextActive]}>{label}</Text></Pressable>; }
 function Bar({name,value,max}:{name:string;value:number;max:number}) { return <View style={s.barRow}><View style={s.barLabels}><Text style={s.barName}>{name}</Text><Text style={s.barValue}>{yen(value)}</Text></View><View style={s.barTrack}><View style={[s.barFill,{width:`${max?Math.max(value/max*100,4):0}%`}]} /></View></View>; }
 function Empty({text}:{text:string}) { return <Text style={s.empty}>{text}</Text>; }
+function FabIcon({kind}:{kind:'camera'|'photo'}) { return kind==='camera' ? <View style={s.cameraIcon}><View style={s.cameraTop}/><View style={s.cameraLens}/></View> : <View style={s.photoIcon}><View style={s.photoSun}/><View style={s.photoMountainLeft}/><View style={s.photoMountainRight}/></View>; }
 
 const s=StyleSheet.create({
-  safe:{flex:1,backgroundColor:'#f4f7f5'},header:{paddingHorizontal:20,paddingTop:14,paddingBottom:10,flexDirection:'row',justifyContent:'space-between',alignItems:'center',borderBottomWidth:1,borderBottomColor:'#e2e9e6'},logo:{fontSize:23,fontWeight:'900',color:'#153e36'},headerMonth:{color:'#60746f',fontWeight:'700'},page:{width:'100%',maxWidth:720,alignSelf:'center',padding:20,paddingBottom:30},navSafe:{backgroundColor:'white'},nav:{flexDirection:'row',backgroundColor:'white',borderTopWidth:1,borderTopColor:'#dbe5e1'},navItem:{flex:1,alignItems:'center',paddingVertical:13},navText:{fontSize:12,color:'#71807d',fontWeight:'700'},navActive:{color:'#0f766e'},eyebrow:{color:'#0f766e',fontWeight:'800',letterSpacing:1,marginBottom:8},hero:{backgroundColor:'#123b35',borderRadius:22,padding:23},heroAmount:{color:'white',fontSize:38,fontWeight:'900'},heroMeta:{color:'#b8ddd5',marginTop:5},progress:{height:8,backgroundColor:'#315952',borderRadius:9,marginTop:18,overflow:'hidden'},progressFill:{height:'100%',backgroundColor:'#f38b56'},quickRow:{flexDirection:'row',gap:10,marginVertical:14},quick:{flex:1,backgroundColor:'#0f766e',padding:15,borderRadius:13,alignItems:'center'},quickSecondary:{backgroundColor:'#dceae6'},quickText:{color:'white',fontWeight:'800'},quickTextSecondary:{color:'#0f665e'},title:{fontSize:21,fontWeight:'900',color:'#193b35',marginTop:18,marginBottom:12},help:{color:'#60746f',lineHeight:21},warning:{backgroundColor:'#fff3e8',color:'#945027',padding:12,borderRadius:10,marginBottom:10},preview:{height:220,width:'100%',backgroundColor:'#e4ebe8',borderRadius:15},loader:{margin:30},card:{backgroundColor:'white',padding:17,borderRadius:18,marginBottom:15},field:{marginBottom:12},label:{fontSize:13,fontWeight:'800',color:'#50635f',marginBottom:5},input:{borderWidth:1,borderColor:'#d7e2de',backgroundColor:'#f7f9f8',borderRadius:10,padding:12,fontSize:16},chips:{flexDirection:'row',flexWrap:'wrap',gap:7,marginBottom:12},chip:{borderWidth:1,borderColor:'#b9cbc6',paddingVertical:9,paddingHorizontal:12,borderRadius:20},chipActive:{backgroundColor:'#d9f1ea',borderColor:'#0f766e'},chipText:{color:'#63736f'},chipTextActive:{color:'#0f665e',fontWeight:'800'},primary:{backgroundColor:'#eb6b35',padding:16,borderRadius:12,alignItems:'center',marginTop:14},primaryText:{color:'white',fontWeight:'900'},cancel:{textAlign:'center',color:'#71807d',marginTop:15},confidence:{backgroundColor:'#e1f4ed',color:'#0f665e',padding:10,borderRadius:9,marginBottom:13,fontWeight:'800'},low:{backgroundColor:'#fff0df',color:'#9a4e19'},monthNav:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:15},monthArrow:{fontSize:38,color:'#0f766e',paddingHorizontal:18},monthTitle:{fontSize:22,fontWeight:'900',color:'#193b35'},search:{backgroundColor:'white',borderWidth:1,borderColor:'#d7e2de',borderRadius:12,padding:13,fontSize:15},expense:{backgroundColor:'white',padding:15,borderRadius:13,marginBottom:9,flexDirection:'row',alignItems:'center'},expenseStore:{fontWeight:'900',fontSize:16,color:'#1d342f'},expenseMeta:{color:'#71807d',fontSize:12,marginTop:4},amountSide:{alignItems:'flex-end',marginLeft:10},expenseAmount:{fontWeight:'900',fontSize:17,color:'#173f38'},delete:{color:'#b54832',fontWeight:'700',fontSize:12,marginTop:6},statTotal:{fontWeight:'900',fontSize:24,color:'#173f38',marginBottom:18},barRow:{marginBottom:14},barLabels:{flexDirection:'row',justifyContent:'space-between'},barName:{fontWeight:'800',color:'#38514c'},barValue:{fontWeight:'800',color:'#38514c'},barTrack:{height:9,backgroundColor:'#e0e8e5',borderRadius:8,marginTop:7,overflow:'hidden'},barFill:{height:'100%',backgroundColor:'#20a486',borderRadius:8},empty:{color:'#71807d',textAlign:'center',paddingVertical:25},inline:{flexDirection:'row',gap:8,alignItems:'center'},smallButton:{backgroundColor:'#0f766e',padding:13,borderRadius:10},secondaryButton:{backgroundColor:'#dceae6',padding:13,borderRadius:10,alignItems:'center'},secondaryText:{color:'#0f665e',fontWeight:'900'},settingRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:12,paddingVertical:12,borderBottomWidth:1,borderBottomColor:'#edf1ef'},settingTitle:{fontWeight:'800',color:'#28443e'},settingHelp:{fontSize:12,color:'#71807d',marginTop:4,lineHeight:17},
-  fabContainer:{position:'absolute',bottom:75,right:16,flexDirection:'column',gap:10,alignItems:'flex-end',zIndex:999},
-  fabButton:{flexDirection:'row',alignItems:'center',backgroundColor:'#0f766e',paddingVertical:10,paddingHorizontal:16,borderRadius:25,elevation:5,shadowColor:'#000',shadowOffset:{width:0,height:2},shadowOpacity:0.25,shadowRadius:3.84,gap:6},
-  fabGallery:{backgroundColor:'#2563eb'},
-  fabIcon:{fontSize:18},
-  fabLabel:{color:'white',fontWeight:'800',fontSize:13},
+  safe:{flex:1,backgroundColor:'#f6f8f7'},header:{paddingHorizontal:20,paddingTop:16,paddingBottom:12,flexDirection:'row',alignItems:'center'},logo:{fontSize:21,fontWeight:'900',color:'#153e36'},page:{width:'100%',maxWidth:720,alignSelf:'center',padding:20,paddingBottom:110},navSafe:{backgroundColor:'white'},nav:{flexDirection:'row',backgroundColor:'white',borderTopWidth:1,borderTopColor:'#e7ecea'},navItem:{flex:1,alignItems:'center',paddingTop:13,paddingBottom:10,gap:5},navText:{fontSize:12,color:'#86918e',fontWeight:'700'},navActive:{color:'#0f766e'},navDot:{width:4,height:4,borderRadius:2,backgroundColor:'#0f766e'},eyebrow:{color:'#0f766e',fontWeight:'800',letterSpacing:1,marginBottom:8},hero:{backgroundColor:'#123b35',borderRadius:22,padding:23},heroAmount:{color:'white',fontSize:38,fontWeight:'900'},heroMeta:{color:'#b8ddd5',marginTop:5},progress:{height:8,backgroundColor:'#315952',borderRadius:9,marginTop:18,overflow:'hidden'},progressFill:{height:'100%',backgroundColor:'#f38b56'},quickRow:{flexDirection:'row',gap:10,marginVertical:14},quick:{flex:1,backgroundColor:'#0f766e',padding:14,borderRadius:13,alignItems:'center'},quickSecondary:{backgroundColor:'#e8efed'},quickText:{color:'white',fontWeight:'800'},quickTextSecondary:{color:'#31564e'},title:{fontSize:21,fontWeight:'900',color:'#193b35',marginTop:18,marginBottom:12},help:{color:'#60746f',lineHeight:21},warning:{backgroundColor:'#fff3e8',color:'#945027',padding:12,borderRadius:10,marginBottom:10},preview:{height:220,width:'100%',backgroundColor:'#e4ebe8',borderRadius:15},loader:{margin:30},card:{backgroundColor:'white',padding:17,borderRadius:18,marginBottom:15},field:{marginBottom:12},label:{fontSize:13,fontWeight:'800',color:'#50635f',marginBottom:5},input:{borderWidth:1,borderColor:'#d7e2de',backgroundColor:'#fafcfb',borderRadius:10,padding:12,fontSize:16},chips:{flexDirection:'row',flexWrap:'wrap',gap:7,marginBottom:12},chipStrip:{gap:7,paddingBottom:12},chip:{borderWidth:1,borderColor:'#c9d5d1',paddingVertical:8,paddingHorizontal:12,borderRadius:20},chipActive:{backgroundColor:'#d9f1ea',borderColor:'#0f766e'},chipText:{color:'#63736f'},chipTextActive:{color:'#0f665e',fontWeight:'800'},primary:{backgroundColor:'#eb6b35',padding:16,borderRadius:12,alignItems:'center',marginTop:8},primaryText:{color:'white',fontWeight:'900'},cancel:{textAlign:'center',color:'#71807d',marginTop:15},confidence:{backgroundColor:'#e1f4ed',color:'#0f665e',padding:10,borderRadius:9,marginBottom:13,fontWeight:'800'},low:{backgroundColor:'#fff0df',color:'#9a4e19'},monthNav:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:15},monthArrow:{fontSize:38,color:'#0f766e',paddingHorizontal:18},monthTitle:{fontSize:22,fontWeight:'900',color:'#193b35'},search:{backgroundColor:'white',borderWidth:1,borderColor:'#d7e2de',borderRadius:12,padding:13,fontSize:15},expense:{backgroundColor:'white',padding:15,borderRadius:13,marginBottom:9,flexDirection:'row',alignItems:'center'},expenseStore:{fontWeight:'900',fontSize:16,color:'#1d342f'},expenseMeta:{color:'#71807d',fontSize:12,marginTop:4},amountSide:{alignItems:'flex-end',marginLeft:10},expenseAmount:{fontWeight:'900',fontSize:17,color:'#173f38'},delete:{color:'#b54832',fontWeight:'700',fontSize:12,marginTop:6},statTotal:{fontWeight:'900',fontSize:24,color:'#173f38',marginBottom:18},barRow:{marginBottom:14},barLabels:{flexDirection:'row',justifyContent:'space-between'},barName:{fontWeight:'800',color:'#38514c'},barValue:{fontWeight:'800',color:'#38514c'},barTrack:{height:9,backgroundColor:'#e0e8e5',borderRadius:8,marginTop:7,overflow:'hidden'},barFill:{height:'100%',backgroundColor:'#20a486',borderRadius:8},empty:{color:'#71807d',textAlign:'center',paddingVertical:25},inline:{flexDirection:'row',gap:8,alignItems:'center'},smallButton:{backgroundColor:'#0f766e',padding:13,borderRadius:10},secondaryButton:{backgroundColor:'#dceae6',padding:13,borderRadius:10,alignItems:'center'},secondaryText:{color:'#0f665e',fontWeight:'900'},settingRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:12,paddingVertical:12,borderBottomWidth:1,borderBottomColor:'#edf1ef'},settingTitle:{fontWeight:'800',color:'#28443e'},settingHelp:{fontSize:12,color:'#71807d',marginTop:4,lineHeight:17},
+  fabContainer:{position:'absolute',bottom:96,right:18,gap:12,zIndex:999},
+  fabButton:{width:56,height:56,alignItems:'center',justifyContent:'center',backgroundColor:'#0f766e',borderRadius:28,elevation:6,shadowColor:'#123b35',shadowOffset:{width:0,height:3},shadowOpacity:.22,shadowRadius:5},
+  fabGallery:{backgroundColor:'white',borderWidth:1,borderColor:'#d8e4e0'},
+  cameraIcon:{width:25,height:18,borderWidth:2,borderColor:'white',borderRadius:4,alignItems:'center',justifyContent:'center'},cameraTop:{position:'absolute',top:-6,width:11,height:6,borderTopLeftRadius:3,borderTopRightRadius:3,backgroundColor:'white'},cameraLens:{width:8,height:8,borderRadius:4,borderWidth:2,borderColor:'white'},
+  photoIcon:{width:25,height:21,borderWidth:2,borderColor:'#0f766e',borderRadius:3,overflow:'hidden'},photoSun:{position:'absolute',width:5,height:5,borderRadius:3,backgroundColor:'#0f766e',right:4,top:4},photoMountainLeft:{position:'absolute',width:17,height:17,borderWidth:2,borderColor:'#0f766e',transform:[{rotate:'45deg'}],left:-3,top:12},photoMountainRight:{position:'absolute',width:12,height:12,borderWidth:2,borderColor:'#0f766e',transform:[{rotate:'45deg'}],right:-2,top:13},
   addContainer:{gap:12},
+  addHeading:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},addTitle:{fontSize:24,fontWeight:'900',color:'#193b35'},batchNote:{fontSize:12,color:'#71807d',marginTop:3},skipButton:{paddingVertical:9,paddingHorizontal:11},skipText:{fontSize:13,color:'#68716e',fontWeight:'700'},formNotice:{color:'#9a572e',fontSize:12,lineHeight:18,marginBottom:6},inputAttention:{borderColor:'#d94d3f',borderWidth:2,backgroundColor:'#fffafa'},
   imageCard:{flexDirection:'row',backgroundColor:'white',padding:12,borderRadius:16,alignItems:'center',gap:14,marginBottom:10,borderWidth:1,borderColor:'#e2e9e6'},
   compactPreview:{width:80,height:100,borderRadius:10,backgroundColor:'#e4ebe8'},
   imageCardInfo:{flex:1,justifyContent:'center'},
@@ -281,6 +279,12 @@ const s=StyleSheet.create({
   halfField:{flex:1},
   subLabel:{fontSize:12,fontWeight:'700',color:'#60746f',marginBottom:4},
   inlineRow:{flexDirection:'row',alignItems:'center',gap:8,marginVertical:8},
+  primaryDisabled:{opacity:.55},
+  disclosure:{marginTop:12,paddingVertical:11,paddingHorizontal:12,borderRadius:10,backgroundColor:'#f0f4f2',flexDirection:'row',alignItems:'center',justifyContent:'space-between'},
+  disclosureTitle:{fontSize:13,fontWeight:'800',color:'#36554e'},
+  disclosureSummary:{fontSize:11,color:'#71807d',marginTop:2},
+  disclosureArrow:{fontSize:11,color:'#0f766e',fontWeight:'900'},
+  optionalPanel:{paddingTop:12},
   debugSection:{marginTop:20,borderTopWidth:1,borderTopColor:'#e2e9e6',paddingTop:12},
   debugHeader:{backgroundColor:'#f0f4f2',padding:10,borderRadius:8,alignItems:'center'},
   debugHeaderText:{color:'#475569',fontWeight:'800',fontSize:12},

@@ -30,6 +30,30 @@ const excludedLabels = /商品合計|値引(?:き)?合計|割引(?:き)?合計|�
 /** Common header/footer noise lines to ignore when guessing merchant names */
 const storeNoise = /領収|レシート|請求書|適格請求書|納品書|電話|TEL|FAX|日時|担当|支払い完了|利用履歴|取引履歴|決済完了|住所|都道府県|登録番号|T\d{13}|責No|レジ|ありがとう|インボイス|店舗コード|売上票|http|www/iu;
 
+/** Canonical merchants commonly printed as logos or split across several OCR lines. */
+const knownMerchants: Array<{ name: string; category: string; aliases: string[]; pattern?: RegExp }> = [
+  { name:'ヨドバシカメラ', category:'その他', aliases:['ヨドバシカメラ','Yodobashi Camera','ヨドバシ'] },
+  { name:'ビックカメラ', category:'その他', aliases:['ビックカメラ','ビッグカメラ','Bic Camera'] },
+  { name:'セブン-イレブン', category:'食費', aliases:['セブン-イレブン','セブンイレブン','7-Eleven'], pattern:/(?:^|[^\d])7\s*[-‐ー]?\s*11(?:[^\d]|$)/imu },
+  { name:'ファミリーマート', category:'食費', aliases:['ファミリーマート','FamilyMart','ファミマ'] },
+  { name:'ローソン', category:'食費', aliases:['ローソン','LAWSON'] },
+  { name:'ミニストップ', category:'食費', aliases:['ミニストップ','MINISTOP'] },
+  { name:'イオン', category:'食費', aliases:['イオン','AEON'] },
+  { name:'イトーヨーカドー', category:'食費', aliases:['イトーヨーカドー','イトーヨーカ堂'] },
+  { name:'西友', category:'食費', aliases:['西友','SEIYU'] },
+  { name:'業務スーパー', category:'食費', aliases:['業務スーパー'] },
+  { name:'オーケー', category:'食費', aliases:['オーケーストア','OKストア'] },
+  { name:'ドン・キホーテ', category:'日用品', aliases:['ドン・キホーテ','ドンキホーテ','Don Quijote'] },
+  { name:'マツモトキヨシ', category:'日用品', aliases:['マツモトキヨシ','マツキヨ'] },
+  { name:'ウエルシア', category:'日用品', aliases:['ウエルシア','Welcia'] },
+  { name:'スギ薬局', category:'日用品', aliases:['スギ薬局'] },
+  { name:'ダイソー', category:'日用品', aliases:['ダイソー','DAISO'] },
+  { name:'ユニクロ', category:'その他', aliases:['ユニクロ','UNIQLO'] },
+  { name:'ニトリ', category:'日用品', aliases:['ニトリ','NITORI'] },
+  { name:'マクドナルド', category:'食費', aliases:['マクドナルド',"McDonald's",'McDonalds'] },
+  { name:'スターバックス', category:'食費', aliases:['スターバックス','Starbucks'] },
+];
+
 /** Automatic category hints based on merchant name keywords */
 const categoryHints: Array<[RegExp, string]> = [
   [/薬局|ドラッグ|クリニック|病院|医院|調剤|サプリ/, '日用品'],
@@ -100,7 +124,7 @@ function repairDigitMisreads(text: string): string {
 /** Extracts monetary values from normalized text */
 export function amounts(value: string): Array<{ value: number; currency: boolean }> {
   const repaired = repairDigitMisreads(normalize(value));
-  const matches = [...repaired.matchAll(/([¥￥]\s*)?(-?\s*\d{1,3}(?:\s*[,，]\s*\d{3})+|-?\s*\d+)(\s*円)?/g)];
+  const matches = [...repaired.matchAll(/([¥￥]\s*)?(-?\s*\d{1,3}(?:(?:\s*[,，]\s*|\s+)\d{3})+|-?\s*\d+)(\s*円)?/g)];
 
   return matches
     .map((match) => {
@@ -128,17 +152,32 @@ export function detectMerchant(lines: string[], rules: MerchantRule[]) {
     }
   }
 
-  // 2. Explicit label match (e.g. 店舗名: XXX)
+  // 2. Prefer a canonical built-in merchant even when OCR splits its logo over lines.
+  const merchantArea = lines.slice(0, 20).join('\n');
+  const merchantAreaKey = merchantKey(merchantArea);
+  const known = knownMerchants.find((merchant) =>
+    merchant.aliases.some((alias) => merchantAreaKey.includes(merchantKey(alias))) || merchant.pattern?.test(merchantArea)
+  );
+  if (known) {
+    return {
+      name: known.name,
+      category: known.category,
+      storeConfidence: 0.98,
+      categoryConfidence: 0.9,
+    };
+  }
+
+  // 3. Explicit label match (e.g. 店舗名: XXX)
   const explicitLine = lines.find((line) => /^(?:店舗名|加盟店名?|利用店名)\s*[:：]?/u.test(line));
   const explicitName = explicitLine?.replace(/^(?:店舗名|加盟店名?|利用店名)\s*[:：]?/u, '').trim();
 
-  // 3. Generic store suffix search
+  // 4. Generic store suffix search
   const generic = lines.slice(0, 14).find((line) => {
     const value = compact(line);
     return value.length >= 2 && value.length <= 40 && !storeNoise.test(value) && /(?:店|屋|館|薬局|スーパー|マート)$/u.test(value);
   });
 
-  // 4. Fallback line search near the top
+  // 5. Fallback line search near the top
   const fallback = lines.slice(0, 8).find((line) => {
     const clean = compact(line);
     return /[A-Za-z\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(line) &&
@@ -305,7 +344,8 @@ export function detectTotal(lines: string[]): { value: string; confidence: numbe
 
   const isAmbiguous = ranked[1] && (ranked[0]!.score - ranked[1].score < 18);
   return {
-    value: isAmbiguous ? '' : String(ranked[0]!.value),
+    // Keep the best candidate selected so confirmation needs correction only when it is wrong.
+    value: String(ranked[0]!.value),
     confidence: isAmbiguous ? 0.45 : Math.min(ranked[0]!.score / 132, 1),
     candidates: ranked.slice(0, 3).map((c) => String(c.value)),
   };
@@ -333,8 +373,8 @@ export function parseReceiptText(rawLines: string[], merchantRules: MerchantRule
       warnings.push('日付が2年以上前です。確認してください。');
     }
   }
-  if (total.candidates.length > 1 && !total.value) {
-    warnings.push('合計金額の候補が複数あります。');
+  if (total.candidates.length > 1 && total.confidence < 0.6) {
+    warnings.push('最も可能性の高い金額を選びました。確認してください。');
   }
   if (!total.value) {
     warnings.push('合計金額を確認してください。');
