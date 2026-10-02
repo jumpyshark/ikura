@@ -1,0 +1,74 @@
+name: Publish downloadable mobile release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (for example, v1.0.0)
+        required: true
+        type: string
+      prerelease:
+        description: Mark this release as a prerelease
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    uses: ./.github/workflows/build-android-apk.yml
+
+  ios:
+    uses: ./.github/workflows/build-unsigned-ios.yml
+
+  publish:
+    name: Publish GitHub release
+    needs: [android, ios]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: ReceiptLog-android-apk
+          path: release-assets
+
+      - name: Download unsigned iOS IPA
+        uses: actions/download-artifact@v4
+        with:
+          name: ReceiptLog-unsigned-ios
+          path: release-assets
+
+      - name: Create release and upload mobile packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          IS_PRERELEASE: ${{ inputs.prerelease }}
+        shell: bash
+        run: |
+          if ! [[ "$RELEASE_TAG" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "Release tag contains unsupported characters: $RELEASE_TAG"
+            exit 1
+          fi
+
+          PRERELEASE_FLAG=()
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            PRERELEASE_FLAG=(--prerelease)
+          fi
+
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --generate-notes \
+              --title "ReceiptLog $RELEASE_TAG" \
+              "${PRERELEASE_FLAG[@]}"
+          fi
+
+          gh release upload "$RELEASE_TAG" \
+            release-assets/ReceiptLog.apk \
+            release-assets/ReceiptLog-unsigned.ipa \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
