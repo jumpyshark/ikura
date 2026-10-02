@@ -132,6 +132,7 @@ function Home({ month, setMonth, total, budget, count, categories, recent, setTa
 function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,submit,reset,cancel}:{draft:ExpenseDraft;setDraft:(d:ExpenseDraft)=>void;imageUri?:string;processing:boolean;editing:boolean;categories:string[];chooseImage:(c:boolean)=>void;submit:()=>void;reset:()=>void;cancel:()=>void}) {
   const set=(key:keyof ExpenseDraft,value:string)=>setDraft({...draft,[key]:value});
   const [showOcrDump, setShowOcrDump] = useState(false);
+  const [showOptional, setShowOptional] = useState(false);
   const isComplete = Boolean(draft.storeName.trim() && draft.date.trim() && draft.amount.trim());
 
   return <View style={s.addContainer}>
@@ -191,29 +192,30 @@ function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,
         </View>
       </View>}
 
-      <View style={s.fieldRow}>
-        <View style={s.halfField}>
-          <Field label="支払方法" value={draft.paymentMethod} onChange={v=>set('paymentMethod',v)}/>
-        </View>
-        <View style={s.halfField}>
-          <Field label="メモ" value={draft.note} onChange={v=>set('note',v)}/>
-        </View>
-      </View>
-
       <Text style={s.label}>カテゴリ</Text>
       <View style={s.chips}>
         {categories.map(c=><Chip key={c} label={c} active={draft.category===c} onPress={()=>set('category',c)}/>)}
       </View>
 
-      <View style={s.inlineRow}>
-        <Text style={[s.label, {marginBottom: 0}]}>種類: </Text>
-        <Chip label="紙レシート" active={draft.sourceType==='receipt'} onPress={()=>setDraft({...draft,sourceType:'receipt'})}/>
-        <Chip label="決済画面" active={draft.sourceType==='payment_screenshot'} onPress={()=>setDraft({...draft,sourceType:'payment_screenshot'})}/>
-      </View>
-
-      <Pressable style={s.primary} onPress={submit}>
-        <Text style={s.primaryText}>確認して保存</Text>
+      <Pressable accessibilityRole="button" style={[s.primary,!isComplete&&s.primaryDisabled]} onPress={submit}>
+        <Text style={s.primaryText}>{editing?'変更を保存':'この内容で保存'}</Text>
       </Pressable>
+
+      <Pressable accessibilityRole="button" style={s.disclosure} onPress={()=>setShowOptional(!showOptional)}>
+        <View><Text style={s.disclosureTitle}>支払方法・メモなど</Text><Text style={s.disclosureSummary}>{draft.paymentMethod || '未設定'}{draft.note ? ` · ${draft.note}` : ' · 任意'}</Text></View>
+        <Text style={s.disclosureArrow}>{showOptional?'▲':'▼'}</Text>
+      </Pressable>
+      {showOptional && <View style={s.optionalPanel}>
+        <View style={s.fieldRow}>
+          <View style={s.halfField}><Field label="支払方法" value={draft.paymentMethod} onChange={v=>set('paymentMethod',v)}/></View>
+          <View style={s.halfField}><Field label="メモ" value={draft.note} onChange={v=>set('note',v)}/></View>
+        </View>
+        <Text style={s.label}>画像の種類</Text>
+        <View style={s.chips}>
+          <Chip label="紙レシート" active={draft.sourceType==='receipt'} onPress={()=>setDraft({...draft,sourceType:'receipt'})}/>
+          <Chip label="決済画面" active={draft.sourceType==='payment_screenshot'} onPress={()=>setDraft({...draft,sourceType:'payment_screenshot'})}/>
+        </View>
+      </View>}
 
       <Pressable onPress={editing?reset:cancel}>
         <Text style={s.cancel}>{editing?'編集をキャンセル':'入力をキャンセル'}</Text>
@@ -281,6 +283,12 @@ const s=StyleSheet.create({
   halfField:{flex:1},
   subLabel:{fontSize:12,fontWeight:'700',color:'#60746f',marginBottom:4},
   inlineRow:{flexDirection:'row',alignItems:'center',gap:8,marginVertical:8},
+  primaryDisabled:{opacity:.55},
+  disclosure:{marginTop:12,paddingVertical:11,paddingHorizontal:12,borderRadius:10,backgroundColor:'#f0f4f2',flexDirection:'row',alignItems:'center',justifyContent:'space-between'},
+  disclosureTitle:{fontSize:13,fontWeight:'800',color:'#36554e'},
+  disclosureSummary:{fontSize:11,color:'#71807d',marginTop:2},
+  disclosureArrow:{fontSize:11,color:'#0f766e',fontWeight:'900'},
+  optionalPanel:{paddingTop:12},
   debugSection:{marginTop:20,borderTopWidth:1,borderTopColor:'#e2e9e6',paddingTop:12},
   debugHeader:{backgroundColor:'#f0f4f2',padding:10,borderRadius:8,alignItems:'center'},
   debugHeaderText:{color:'#475569',fontWeight:'800',fontSize:12},
