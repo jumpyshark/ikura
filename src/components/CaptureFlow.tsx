@@ -18,12 +18,14 @@ export function CaptureFlow({visible,onClose,onDiscard,onComplete,aiEnabled,onDi
   const [working,setWorking]=useState(false);
   const [editingCrop,setEditingCrop]=useState(false);
   const [original,setOriginal]=useState(false);
+  const [showAdjustments,setShowAdjustments]=useState(false);
   const [progress,setProgress]=useState('');
   const [retakeId,setRetakeId]=useState<string>();
   const lock=useRef(false),generation=useRef(0),alive=useRef(true);
   const generated=useRef<string[]>([]);
   const results=useRef(new Map<string,ReviewedCandidate[]>());
   const attempted=useRef(new Set<string>());
+  const galleryLaunchPending=useRef(false);
   const photo=photos[index];
   useEffect(()=>onDirty(photos.length>0),[photos.length,onDirty]);
   useEffect(()=>{alive.current=true;return ()=>{alive.current=false; generation.current++; void cleanupReview(generated.current);};},[]);
@@ -52,18 +54,25 @@ export function CaptureFlow({visible,onClose,onDiscard,onComplete,aiEnabled,onDi
   });
   useEffect(()=>{
     if(!visible)return;
-    setEditingCrop(false);setOriginal(false);setRetakeId(undefined);
+    setEditingCrop(false);setOriginal(false);setShowAdjustments(false);setRetakeId(undefined);
     if(entry==='review' && photos.length) {setStage('review');setIndex(Math.max(0,photos.findIndex(p=>p.previewUri===focusUri)));}
-    else {setStage('capture');if(entry==='gallery')pick('screenshot');}
+    else {setStage('capture');galleryLaunchPending.current=entry==='gallery';}
   },[visible]);
+  const showGallery=()=>{
+    if(!galleryLaunchPending.current)return;
+    galleryLaunchPending.current=false;
+    // Wait until the full-screen modal is presented before opening the native picker.
+    // Launching both presentations in the same render can leave iOS/Android unresponsive.
+    pick('screenshot');
+  };
   const addPhoto=(uri:string)=>{
     const next=newPhoto(uri,'receipt');
     if(retakeId){setPhotos(old=>old.map(p=>p.id===retakeId?next:p));setRetakeId(undefined);setStage('review');}
     else {
       setPhotos(old=>old.length<LIMIT?[...old,next]:old);
-      setStage('review');
     }
   };
+  const reviewPhotos=()=>{if(photos.length){setIndex(0);setStage('review');}};
   const prepareCurrent=()=>void work(async token=>{
     if(!photo) return;
     const base=await preparePhoto(photo,track);
@@ -119,35 +128,34 @@ export function CaptureFlow({visible,onClose,onDiscard,onComplete,aiEnabled,onDi
     }
     if(active(token)) {setStage('review');onComplete(all,all.map(row=>row.imageUri).join('|'));}
   });
-  return <Modal visible={visible} presentationStyle="fullScreen" animationType="slide" onRequestClose={()=>working?cancelWork():onClose()}><SafeAreaProvider style={{flex:1}}><SafeAreaView style={s.safe} edges={['top','bottom','left','right']}>
-    <View style={s.header}><Text style={s.title}>{stage==='capture'?'レシートを撮影':stage==='review'?`画像確認：${index+1}／${photos.length}枚`:'文字を読み取り'}</Text><Button label="戻る" disabled={working} onPress={onClose}/></View>
-    <Text style={s.steps}>撮影 → 自動補正・読み取り → 画像と内容を確認 → 保存</Text>
-    {stage==='capture'?<>{working?<View style={s.center}><ActivityIndicator/></View>:visible?<BatchCamera key={retakeId??'batch'} uris={retakeId?[]:photos.map(p=>p.originalUri)} limit={retakeId?1:LIMIT} onPhoto={addPhoto} onDone={read} onRemove={i=>setPhotos(old=>old.filter((_,at)=>at!==i))} onGallery={()=>Alert.alert('画像の種類','読み込む画像を選んでください。',[{text:'戻る',style:'cancel'},{text:'紙レシート',onPress:()=>pick('receipt')},{text:'決済画面',onPress:()=>pick('screenshot')}])}/>:null}</>:stage==='processing'?<View style={s.center}><ActivityIndicator size="large"/><Text>{progress}</Text><Text style={s.help}>画像を1枚ずつ処理しています。</Text><Button label="読み取りを中止して画像確認に戻る" onPress={cancelWork}/></View>:editingCrop&&photo?<View style={s.page}>
+  return <Modal visible={visible} presentationStyle="fullScreen" animationType="slide" onShow={showGallery} onRequestClose={()=>working?cancelWork():onClose()}><SafeAreaProvider style={{flex:1}}><SafeAreaView style={s.safe} edges={['top','bottom','left','right']}>
+    <View style={s.header}><Text style={s.title}>{stage==='capture'?'撮影':stage==='review'?`確認 ${index+1}/${photos.length}`:'読み取り中'}</Text><IconButton symbol="×" label="閉じる" disabled={working} onPress={onClose}/></View>
+    <Text style={s.steps}>{stage==='capture'?'レシートを枠内に入れて撮影':stage==='review'?'自動補正済み · 必要なときだけ調整':'店名・日付・金額を抽出しています'}</Text>
+    {stage==='capture'?<>{working?<View style={s.center}><ActivityIndicator/></View>:visible?<BatchCamera key={retakeId??'batch'} uris={retakeId?[]:photos.map(p=>p.originalUri)} limit={retakeId?1:LIMIT} onPhoto={addPhoto} onDone={retakeId?()=>undefined:reviewPhotos} onRemove={i=>setPhotos(old=>old.filter((_,at)=>at!==i))} onGallery={()=>Alert.alert('画像の種類','読み込む画像を選んでください。',[{text:'戻る',style:'cancel'},{text:'紙レシート',onPress:()=>pick('receipt')},{text:'決済画面',onPress:()=>pick('screenshot')}])}/>:null}</>:stage==='processing'?<View style={s.center}><ActivityIndicator size="large"/><Text>{progress}</Text><Text style={s.help}>画像を1枚ずつ処理しています。</Text><Button label="読み取りを中止して画像確認に戻る" onPress={cancelWork}/></View>:editingCrop&&photo?<View style={s.page}>
       <CropEditor photo={photo} onChange={crop=>update({...photo,crop,approved:false,previewUri:undefined})}/>
       <Button primary label="この範囲を適用" disabled={working} onPress={()=>render(photo)}/>
       <Button label="全体に戻す" disabled={working} onPress={()=>render({...photo,crop:fullCrop()})}/>
       {working&&<ActivityIndicator/>}
     </View>:<ScrollView contentContainerStyle={s.page}>
       {photo?<>
-        <Text style={s.help}>店名・日付・合計が切れていないか確認してください。ぼやけや反射がある場合は撮り直してください。</Text>
+        {photos.length>1&&<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.reviewThumbs}>{photos.map((item,at)=><Pressable key={item.id} accessibilityLabel={`${at+1}枚目を表示`} onPress={()=>{setIndex(at);setEditingCrop(false);setOriginal(false);}} style={[s.reviewThumbWrap,at===index&&s.reviewThumbActive]}><Image source={{uri:item.previewUri??item.originalUri}} style={s.reviewThumb}/><Text style={s.reviewThumbNumber}>{at+1}</Text></Pressable>)}</ScrollView>}
+        <View style={s.autoBanner}><Text style={s.autoTitle}>✓ 自動補正済み</Text><Text style={s.autoHelp}>必要なときだけ調整</Text></View>
         {photo.warnings.map(w=><Text key={w} style={s.warning}>{w}</Text>)}
         {photo.baseUri && photo.width && photo.height ? editingCrop ? <CropEditor key={photo.id+photo.rotation} photo={photo} onChange={crop=>update({...photo,crop,approved:false,previewUri:undefined})}/> : <Image source={{uri:original?photo.baseUri:photo.previewUri??photo.baseUri}} style={s.preview} resizeMode="contain"/> : <Image source={{uri:photo.originalUri}} style={s.preview} resizeMode="contain"/>}
         {working&&<ActivityIndicator/>}
         {!photo.baseUri && !working && <Button label="画像の準備を再試行" onPress={prepareCurrent}/>}
+        <Button primary label="この画像を使う" disabled={working||editingCrop||!photo.previewUri} onPress={read}/>
         {photo.baseUri && <>
-          <View style={s.row}><Button label={original?'補正後を表示':'元画像と比較'} disabled={working||editingCrop} onPress={()=>setOriginal(!original)}/><Button label="右に90度回転" disabled={working} onPress={rotate}/></View>
-          <Text style={s.help}>範囲は長方形で調整できます。斜めの写真は、正面から撮り直すと読み取りやすくなります。</Text>
-          <Button label={editingCrop||!photo.previewUri?'この範囲を適用':'切り取り範囲を調整'} disabled={working} onPress={()=>editingCrop||!photo.previewUri?render(photo):setEditingCrop(true)}/>
-          <Button label="全体に戻す" disabled={working} onPress={()=>render({...photo,crop:fullCrop()})}/>
-          <Text style={s.title}>画像の補正</Text><View style={s.row}>{([['original','元の色'],['enhanced','くっきり'],['mono','白黒']] as [Filter,string][]).map(([filter,label])=><Button key={filter} label={(photo.filter===filter?'✓ ':'')+label} disabled={working||editingCrop} onPress={()=>render({...photo,filter})}/>)}</View>
+          <Pressable accessibilityRole="button" style={s.adjustToggle} onPress={()=>setShowAdjustments(!showAdjustments)}><View><Text style={s.adjustTitle}>画像を調整</Text><Text style={s.adjustSummary}>切り取り・回転・フィルター</Text></View><Text style={s.adjustArrow}>{showAdjustments?'▲':'▼'}</Text></Pressable>
+          {showAdjustments && <View style={s.adjustPanel}>
+            <View style={s.iconRow}><IconButton symbol="◐" label={original?'補正後を表示':'元画像と比較'} disabled={working||editingCrop} onPress={()=>setOriginal(!original)}/><IconButton symbol="↻" label="右に90度回転" disabled={working} onPress={rotate}/><IconButton symbol="⌗" label="切り取り範囲を調整" disabled={working} onPress={()=>setEditingCrop(true)}/><IconButton symbol="⌫" label="この画像を削除" disabled={working} destructive onPress={()=>{setPhotos(old=>old.filter(p=>p.id!==photo.id));setIndex(Math.max(0,index-1));if(photos.length===1)setStage('capture');}}/></View>
+            <Button label="切り取りをリセット" disabled={working} onPress={()=>render({...photo,crop:fullCrop()})}/>
+            <Text style={s.adjustLabel}>フィルター</Text><View style={s.row}>{([['original','元の色'],['enhanced','くっきり'],['mono','白黒']] as [Filter,string][]).map(([filter,label])=><Button key={filter} label={(photo.filter===filter?'✓ ':'')+label} disabled={working||editingCrop} onPress={()=>render({...photo,filter})}/>)}</View>
+          </View>}
         </>}
-        <View style={s.row}><Button label="撮り直す" disabled={working} onPress={()=>{setRetakeId(photo.id);setStage('capture');setEditingCrop(false);}}/><Button label="削除" disabled={working} onPress={()=>Alert.alert('この画像を削除しますか？','他の画像は残ります。',[{text:'戻る',style:'cancel'},{text:'削除',style:'destructive',onPress:()=>{setPhotos(old=>old.filter(p=>p.id!==photo.id));setIndex(Math.max(0,index-1));setEditingCrop(false);if(photos.length===1)setStage('capture');}}])}/></View>
-        <View style={s.row}><Button label="前の画像" disabled={working||index===0} onPress={()=>{setIndex(index-1);setEditingCrop(false);setOriginal(false);}}/><Button label="次の画像" disabled={working||index===photos.length-1} onPress={()=>{setIndex(index+1);setEditingCrop(false);setOriginal(false);}}/></View>
-        <Button primary label="画像と読み取り結果を確認する" disabled={working||editingCrop} onPress={read}/>
-        <Button label="撮影・画像の追加に戻る" disabled={working} onPress={()=>setStage('capture')}/>
+        <View style={s.row}><Button label="↻ 撮り直す" disabled={working} onPress={()=>{setRetakeId(photo.id);setStage('capture');setEditingCrop(false);}}/><Button label="＋ 追加" disabled={working} onPress={()=>setStage('capture')}/></View>
       </>:null}
-      <Text style={s.help}>戻っても、この操作中は画像を保持します。アプリを終了すると未保存の作業は失われます。</Text>
-      <Button label="未保存の画像をすべて破棄" disabled={working} onPress={discard}/>
+      <View style={s.discardRow}><IconButton symbol="⌫" label="撮影をすべて破棄" disabled={working} destructive onPress={discard}/></View>
     </ScrollView>}
   </SafeAreaView></SafeAreaProvider></Modal>;
 }
@@ -172,4 +180,5 @@ function Corner({x,y,width,height,label,move}:{x:number;y:number;width:number;he
 function Button({label,onPress,disabled=false,primary=false}:{label:string;onPress:()=>void;disabled?:boolean;primary?:boolean}) {
   return <Pressable accessibilityRole="button" accessibilityState={{disabled}} disabled={disabled} onPress={onPress} style={[s.button,primary&&s.primary,disabled&&{opacity:.4}]}><Text style={[s.buttonText,primary&&{color:'white'}]}>{label}</Text></Pressable>;
 }
-const s=StyleSheet.create({safe:{flex:1,backgroundColor:'#f4f7f5'},header:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:16},title:{fontSize:18,fontWeight:'800',color:'#153e36',marginVertical:10},steps:{color:'#47665d',paddingHorizontal:16,paddingBottom:12},page:{padding:20,gap:10},help:{fontSize:14,color:'#50665e',lineHeight:22},button:{padding:12,borderRadius:12,backgroundColor:'#dceae6',marginVertical:3},buttonText:{textAlign:'center',color:'#0f665e',fontWeight:'700'},primary:{backgroundColor:'#0f766e'},thumbs:{flexDirection:'row',flexWrap:'wrap',gap:14},thumb:{width:90,height:115,borderRadius:8},preview:{width:'100%',height:380,backgroundColor:'#e2e9e6'},row:{flexDirection:'row',flexWrap:'wrap',gap:8},warning:{backgroundColor:'#fff0df',color:'#85512b',padding:12,borderRadius:10},center:{flex:1,alignItems:'center',justifyContent:'center',gap:20}});
+function IconButton({symbol,label,onPress,disabled=false,destructive=false}:{symbol:string;label:string;onPress:()=>void;disabled?:boolean;destructive?:boolean}) { return <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onPress} style={[s.iconButton,destructive&&s.iconDestructive,disabled&&{opacity:.35}]}><Text style={[s.iconSymbol,destructive&&{color:'#b24c3d'}]}>{symbol}</Text></Pressable>; }
+const s=StyleSheet.create({safe:{flex:1,backgroundColor:'#f7f7f6'},header:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:18,paddingTop:4},title:{fontSize:18,fontWeight:'800',color:'#292f2d',marginVertical:10},steps:{color:'#777d7b',fontSize:12,paddingHorizontal:18,paddingBottom:10},page:{padding:18,gap:10},help:{fontSize:14,color:'#626866',lineHeight:22},button:{padding:12,borderRadius:12,backgroundColor:'#eceeed',marginVertical:3,flexGrow:1},buttonText:{textAlign:'center',color:'#404745',fontWeight:'700'},primary:{backgroundColor:'#e56b3f',paddingVertical:15},thumbs:{flexDirection:'row',flexWrap:'wrap',gap:14},thumb:{width:90,height:115,borderRadius:8},preview:{width:'100%',height:380,backgroundColor:'#e7e8e7',borderRadius:16},row:{flexDirection:'row',gap:8},warning:{color:'#9a572e',paddingVertical:5},center:{flex:1,alignItems:'center',justifyContent:'center',gap:20},autoBanner:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:'#eeeeec',paddingVertical:9,paddingHorizontal:12,borderRadius:10},autoTitle:{color:'#464c4a',fontWeight:'900'},autoHelp:{color:'#777d7b',fontSize:11},adjustToggle:{padding:12,borderRadius:12,backgroundColor:'white',borderWidth:1,borderColor:'#dedfdd',flexDirection:'row',alignItems:'center',justifyContent:'space-between'},adjustTitle:{color:'#343a38',fontWeight:'800'},adjustSummary:{color:'#777d7b',fontSize:12,marginTop:2},adjustArrow:{color:'#606664',fontWeight:'900'},adjustPanel:{gap:7,padding:10,borderWidth:1,borderColor:'#dedfdd',borderRadius:12},adjustLabel:{fontSize:13,fontWeight:'800',color:'#626866',marginTop:4},reviewThumbs:{gap:9,paddingVertical:2},reviewThumbWrap:{borderWidth:2,borderColor:'transparent',borderRadius:10,padding:2},reviewThumbActive:{borderColor:'#e56b3f'},reviewThumb:{width:54,height:68,borderRadius:6,backgroundColor:'#e7e8e7'},reviewThumbNumber:{position:'absolute',right:4,bottom:4,color:'white',backgroundColor:'#343a38',fontSize:10,paddingHorizontal:4,borderRadius:6},iconRow:{flexDirection:'row',justifyContent:'space-around'},iconButton:{width:44,height:44,borderRadius:22,alignItems:'center',justifyContent:'center',backgroundColor:'#eceeed'},iconDestructive:{backgroundColor:'#f8e9e6'},iconSymbol:{fontSize:22,color:'#424846',fontWeight:'700'},discardRow:{alignItems:'center',paddingTop:4}});
