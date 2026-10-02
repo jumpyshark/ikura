@@ -25,6 +25,7 @@ export function CaptureFlow({visible,onClose,onDiscard,onComplete,aiEnabled,onDi
   const generated=useRef<string[]>([]);
   const results=useRef(new Map<string,ReviewedCandidate[]>());
   const attempted=useRef(new Set<string>());
+  const galleryLaunchPending=useRef(false);
   const photo=photos[index];
   useEffect(()=>onDirty(photos.length>0),[photos.length,onDirty]);
   useEffect(()=>{alive.current=true;return ()=>{alive.current=false; generation.current++; void cleanupReview(generated.current);};},[]);
@@ -55,8 +56,15 @@ export function CaptureFlow({visible,onClose,onDiscard,onComplete,aiEnabled,onDi
     if(!visible)return;
     setEditingCrop(false);setOriginal(false);setShowAdjustments(false);setRetakeId(undefined);
     if(entry==='review' && photos.length) {setStage('review');setIndex(Math.max(0,photos.findIndex(p=>p.previewUri===focusUri)));}
-    else {setStage('capture');if(entry==='gallery')pick('screenshot');}
+    else {setStage('capture');galleryLaunchPending.current=entry==='gallery';}
   },[visible]);
+  const showGallery=()=>{
+    if(!galleryLaunchPending.current)return;
+    galleryLaunchPending.current=false;
+    // Wait until the full-screen modal is presented before opening the native picker.
+    // Launching both presentations in the same render can leave iOS/Android unresponsive.
+    pick('screenshot');
+  };
   const addPhoto=(uri:string)=>{
     const next=newPhoto(uri,'receipt');
     if(retakeId){setPhotos(old=>old.map(p=>p.id===retakeId?next:p));setRetakeId(undefined);setStage('review');}
@@ -120,7 +128,7 @@ export function CaptureFlow({visible,onClose,onDiscard,onComplete,aiEnabled,onDi
     }
     if(active(token)) {setStage('review');onComplete(all,all.map(row=>row.imageUri).join('|'));}
   });
-  return <Modal visible={visible} presentationStyle="fullScreen" animationType="slide" onRequestClose={()=>working?cancelWork():onClose()}><SafeAreaProvider style={{flex:1}}><SafeAreaView style={s.safe} edges={['top','bottom','left','right']}>
+  return <Modal visible={visible} presentationStyle="fullScreen" animationType="slide" onShow={showGallery} onRequestClose={()=>working?cancelWork():onClose()}><SafeAreaProvider style={{flex:1}}><SafeAreaView style={s.safe} edges={['top','bottom','left','right']}>
     <View style={s.header}><Text style={s.title}>{stage==='capture'?'撮影':stage==='review'?`確認 ${index+1}/${photos.length}`:'読み取り中'}</Text><IconButton symbol="×" label="閉じる" disabled={working} onPress={onClose}/></View>
     <Text style={s.steps}>{stage==='capture'?'レシートを枠内に入れて撮影':stage==='review'?'自動補正済み · 必要なときだけ調整':'店名・日付・金額を抽出しています'}</Text>
     {stage==='capture'?<>{working?<View style={s.center}><ActivityIndicator/></View>:visible?<BatchCamera key={retakeId??'batch'} uris={retakeId?[]:photos.map(p=>p.originalUri)} limit={retakeId?1:LIMIT} onPhoto={addPhoto} onDone={retakeId?()=>undefined:reviewPhotos} onRemove={i=>setPhotos(old=>old.filter((_,at)=>at!==i))} onGallery={()=>Alert.alert('画像の種類','読み込む画像を選んでください。',[{text:'戻る',style:'cancel'},{text:'紙レシート',onPress:()=>pick('receipt')},{text:'決済画面',onPress:()=>pick('screenshot')}])}/>:null}</>:stage==='processing'?<View style={s.center}><ActivityIndicator size="large"/><Text>{progress}</Text><Text style={s.help}>画像を1枚ずつ処理しています。</Text><Button label="読み取りを中止して画像確認に戻る" onPress={cancelWork}/></View>:editingCrop&&photo?<View style={s.page}>

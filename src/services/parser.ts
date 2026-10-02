@@ -133,7 +133,7 @@ export function amounts(value: string): Array<{ value: number; currency: boolean
       const hasCurrency = Boolean(match[1] || match[3]);
       return { value: numValue, currency: hasCurrency };
     })
-    .filter((item) => item.value > 0 && item.value < 10_000_000);
+    .filter((item) => item.value > 1 && item.value < 10_000_000);
 }
 
 /** Detects store/merchant name and infers category */
@@ -270,26 +270,30 @@ export function detectTotal(lines: string[]): { value: string; confidence: numbe
   // Scored label search
   lines.forEach((line, index) => {
     const windows = [
-      line,
-      lines.slice(index, index + 2).join(''),
-      lines.slice(index, index + 3).join(''),
-    ].map(compact);
+      { text:line, span:1 },
+      { text:lines.slice(index, index + 2).join(''), span:2 },
+      { text:lines.slice(index, index + 3).join(''), span:3 },
+    ].map(window=>({...window,text:compact(window.text)}));
 
     for (const window of windows) {
-      const label = totalLabels.find(({ re }) => re.test(window));
-      if (!label || excludedLabels.test(window)) continue;
+      const label = totalLabels.find(({ re }) => re.test(window.text));
+      if (!label) continue;
 
-      const labelMatch = window.match(label.re);
-      const labelEnd = window.search(label.re) + (labelMatch?.[0].length ?? 0);
-      const windowAmounts = amounts(window.slice(labelEnd));
+      const labelMatch = window.text.match(label.re);
+      const labelStart = window.text.search(label.re);
+      const labelEnd = labelStart + (labelMatch?.[0].length ?? 0);
+      const labelContext = window.text.slice(Math.max(0,labelStart-5),labelEnd);
+      if (excludedLabels.test(labelContext)) continue;
+      const windowAmounts = amounts(window.text.slice(labelEnd));
 
-      for (const amount of windowAmounts) {
+      for (const [amountIndex,amount] of windowAmounts.entries()) {
         const positionBonus = (index / lines.length) * 8;
         const currencyBonus = amount.currency ? 12 : 0;
+        const proximityBonus = Math.max(0,18-amountIndex*9-window.span*3);
         scoredCandidates.push({
           value: amount.value,
-          score: label.score + currencyBonus + positionBonus,
-          reason: window,
+          score: label.score + currencyBonus + positionBonus + proximityBonus,
+          reason: window.text,
         });
       }
     }

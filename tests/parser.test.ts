@@ -129,3 +129,9 @@ test('reads OCR spaces used in place of thousands separators',()=>{
   assert.deepEqual(amounts('お会計 ¥6 700'),[{value:6700,currency:true}]);
   assert.equal(parseReceiptText(['ヨドバシ カメラ','2026/09/10','合計 6 700 円']).amount,'6700');
 });
+
+test('prefers a plausible amount closest to a total label and ignores item counts',()=>{
+  const result=parseReceiptText(['テスト店','2026/09/10','合計 1 点 6 700 円','獲得ポイント 200円']);
+  assert.equal(result.amount,'6700');
+  assert.ok(!result.amountCandidates?.includes('1'));
+});
