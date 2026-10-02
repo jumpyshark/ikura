@@ -1,5 +1,5 @@
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt b/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
-index a676ed9..90804ad 100644
+index a676ed9..3701f88 100644
 --- a/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
 +++ b/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
 @@ -73,6 +73,15 @@ class ExpoTextExtractorModule : Module() {
@@ -18,10 +18,18 @@ index a676ed9..90804ad 100644
  
      Constants(
        "isSupported" to true
-@@ -113,6 +122,38 @@ class ExpoTextExtractorModule : Module() {
-       }
-     }
- 
+@@ -106,10 +115,42 @@ class ExpoTextExtractorModule : Module() {
+             promise.resolve(recognizedTexts)
+           }
+           .addOnFailureListener { error ->
+-            promise.reject(CodedException("TEXT_RECOGNITION_ERROR", error.message ?: "Text recognition failed", error))
++            promise.reject("TEXT_RECOGNITION_ERROR", error.message ?: "Text recognition failed", error)
++          }
++      } catch (error: Exception) {
++        promise.reject("UNKNOWN_ERROR", error.message ?: "Unknown error", error)
++      }
++    }
++
 +    AsyncFunction("extractStructuredTextFromImage") { uriString: String, options: RecognitionOptionsRecord?, promise: Promise ->
 +      try {
 +        val context = appContext.reactContext!!
@@ -47,16 +55,14 @@ index a676ed9..90804ad 100644
 +              mapOf("text" to line.text, "frame" to frame, "elements" to elements)
 +            }
 +            promise.resolve(result)
-+          }
-+          .addOnFailureListener { error -> promise.reject(CodedException("TEXT_RECOGNITION_ERROR", error.message ?: "Text recognition failed", error)) }
-+      } catch (error: Exception) {
-+        promise.reject(CodedException("UNKNOWN_ERROR", error.message ?: "Unknown error", error))
-+      }
-+    }
-+
-     /**
-      * Returns the list of supported scripts on Android.
-      * 
+           }
++          .addOnFailureListener { error -> promise.reject("TEXT_RECOGNITION_ERROR", error.message ?: "Text recognition failed", error) }
+       } catch (error: Exception) {
+-        promise.reject(CodedException("UNKNOWN_ERROR", error.message ?: "Unknown error", error))
++        promise.reject("UNKNOWN_ERROR", error.message ?: "Unknown error", error)
+       }
+     }
+
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ReceiptImageReview.kt b/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ReceiptImageReview.kt
 new file mode 100644
 index 0000000..fa146dd
@@ -185,7 +191,7 @@ index aaa2cf0..1c127ee 100644
   * Gets the list of supported languages for text recognition.
   *
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/build/index.js b/node_modules/@zhanziyang/expo-text-extractor/build/index.js
-index 50ec68d..28e6a5b 100644
+index 86a63e8..825f47f 100644
 --- a/node_modules/@zhanziyang/expo-text-extractor/build/index.js
 +++ b/node_modules/@zhanziyang/expo-text-extractor/build/index.js
 @@ -40,6 +40,9 @@ export async function extractTextFromImage(uri, options) {
