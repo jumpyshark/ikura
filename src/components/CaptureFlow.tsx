@@ -18,6 +18,7 @@ export function CaptureFlow({visible,onClose,onDiscard,onComplete,aiEnabled,onDi
   const [working,setWorking]=useState(false);
   const [editingCrop,setEditingCrop]=useState(false);
   const [original,setOriginal]=useState(false);
+  const [showAdjustments,setShowAdjustments]=useState(false);
   const [progress,setProgress]=useState('');
   const [retakeId,setRetakeId]=useState<string>();
   const lock=useRef(false),generation=useRef(0),alive=useRef(true);
@@ -52,7 +53,7 @@ export function CaptureFlow({visible,onClose,onDiscard,onComplete,aiEnabled,onDi
   });
   useEffect(()=>{
     if(!visible)return;
-    setEditingCrop(false);setOriginal(false);setRetakeId(undefined);
+    setEditingCrop(false);setOriginal(false);setShowAdjustments(false);setRetakeId(undefined);
     if(entry==='review' && photos.length) {setStage('review');setIndex(Math.max(0,photos.findIndex(p=>p.previewUri===focusUri)));}
     else {setStage('capture');if(entry==='gallery')pick('screenshot');}
   },[visible]);
@@ -129,21 +130,23 @@ export function CaptureFlow({visible,onClose,onDiscard,onComplete,aiEnabled,onDi
       {working&&<ActivityIndicator/>}
     </View>:<ScrollView contentContainerStyle={s.page}>
       {photo?<>
-        <Text style={s.help}>店名・日付・合計が切れていないか確認してください。ぼやけや反射がある場合は撮り直してください。</Text>
+        <View style={s.autoBanner}><Text style={s.autoTitle}>✓ 自動補正を適用しました</Text><Text style={s.autoHelp}>店名・日付・合計が見えていれば、そのまま読み取りへ進めます。</Text></View>
         {photo.warnings.map(w=><Text key={w} style={s.warning}>{w}</Text>)}
         {photo.baseUri && photo.width && photo.height ? editingCrop ? <CropEditor key={photo.id+photo.rotation} photo={photo} onChange={crop=>update({...photo,crop,approved:false,previewUri:undefined})}/> : <Image source={{uri:original?photo.baseUri:photo.previewUri??photo.baseUri}} style={s.preview} resizeMode="contain"/> : <Image source={{uri:photo.originalUri}} style={s.preview} resizeMode="contain"/>}
         {working&&<ActivityIndicator/>}
         {!photo.baseUri && !working && <Button label="画像の準備を再試行" onPress={prepareCurrent}/>}
         {photo.baseUri && <>
-          <View style={s.row}><Button label={original?'補正後を表示':'元画像と比較'} disabled={working||editingCrop} onPress={()=>setOriginal(!original)}/><Button label="右に90度回転" disabled={working} onPress={rotate}/></View>
-          <Text style={s.help}>範囲は長方形で調整できます。斜めの写真は、正面から撮り直すと読み取りやすくなります。</Text>
-          <Button label={editingCrop||!photo.previewUri?'この範囲を適用':'切り取り範囲を調整'} disabled={working} onPress={()=>editingCrop||!photo.previewUri?render(photo):setEditingCrop(true)}/>
-          <Button label="全体に戻す" disabled={working} onPress={()=>render({...photo,crop:fullCrop()})}/>
-          <Text style={s.title}>画像の補正</Text><View style={s.row}>{([['original','元の色'],['enhanced','くっきり'],['mono','白黒']] as [Filter,string][]).map(([filter,label])=><Button key={filter} label={(photo.filter===filter?'✓ ':'')+label} disabled={working||editingCrop} onPress={()=>render({...photo,filter})}/>)}</View>
+          <Pressable accessibilityRole="button" style={s.adjustToggle} onPress={()=>setShowAdjustments(!showAdjustments)}><View><Text style={s.adjustTitle}>画像を調整</Text><Text style={s.adjustSummary}>切り取り・回転・フィルター</Text></View><Text style={s.adjustArrow}>{showAdjustments?'▲':'▼'}</Text></Pressable>
+          {showAdjustments && <View style={s.adjustPanel}>
+            <View style={s.row}><Button label={original?'補正後を表示':'元画像と比較'} disabled={working||editingCrop} onPress={()=>setOriginal(!original)}/><Button label="右に90度回転" disabled={working} onPress={rotate}/></View>
+            <Button label={editingCrop||!photo.previewUri?'この範囲を適用':'切り取り範囲を調整'} disabled={working} onPress={()=>editingCrop||!photo.previewUri?render(photo):setEditingCrop(true)}/>
+            <Button label="切り取りをリセット" disabled={working} onPress={()=>render({...photo,crop:fullCrop()})}/>
+            <Text style={s.adjustLabel}>フィルター</Text><View style={s.row}>{([['original','元の色'],['enhanced','くっきり'],['mono','白黒']] as [Filter,string][]).map(([filter,label])=><Button key={filter} label={(photo.filter===filter?'✓ ':'')+label} disabled={working||editingCrop} onPress={()=>render({...photo,filter})}/>)}</View>
+          </View>}
         </>}
         <View style={s.row}><Button label="撮り直す" disabled={working} onPress={()=>{setRetakeId(photo.id);setStage('capture');setEditingCrop(false);}}/><Button label="削除" disabled={working} onPress={()=>Alert.alert('この画像を削除しますか？','他の画像は残ります。',[{text:'戻る',style:'cancel'},{text:'削除',style:'destructive',onPress:()=>{setPhotos(old=>old.filter(p=>p.id!==photo.id));setIndex(Math.max(0,index-1));setEditingCrop(false);if(photos.length===1)setStage('capture');}}])}/></View>
         <View style={s.row}><Button label="前の画像" disabled={working||index===0} onPress={()=>{setIndex(index-1);setEditingCrop(false);setOriginal(false);}}/><Button label="次の画像" disabled={working||index===photos.length-1} onPress={()=>{setIndex(index+1);setEditingCrop(false);setOriginal(false);}}/></View>
-        <Button primary label="画像と読み取り結果を確認する" disabled={working||editingCrop} onPress={read}/>
+        <Button primary label="この画像を読み取る" disabled={working||editingCrop||!photo.previewUri} onPress={read}/>
         <Button label="撮影・画像の追加に戻る" disabled={working} onPress={()=>setStage('capture')}/>
       </>:null}
       <Text style={s.help}>戻っても、この操作中は画像を保持します。アプリを終了すると未保存の作業は失われます。</Text>
@@ -172,4 +175,4 @@ function Corner({x,y,width,height,label,move}:{x:number;y:number;width:number;he
 function Button({label,onPress,disabled=false,primary=false}:{label:string;onPress:()=>void;disabled?:boolean;primary?:boolean}) {
   return <Pressable accessibilityRole="button" accessibilityState={{disabled}} disabled={disabled} onPress={onPress} style={[s.button,primary&&s.primary,disabled&&{opacity:.4}]}><Text style={[s.buttonText,primary&&{color:'white'}]}>{label}</Text></Pressable>;
 }
-const s=StyleSheet.create({safe:{flex:1,backgroundColor:'#f4f7f5'},header:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:16},title:{fontSize:18,fontWeight:'800',color:'#153e36',marginVertical:10},steps:{color:'#47665d',paddingHorizontal:16,paddingBottom:12},page:{padding:20,gap:10},help:{fontSize:14,color:'#50665e',lineHeight:22},button:{padding:12,borderRadius:12,backgroundColor:'#dceae6',marginVertical:3},buttonText:{textAlign:'center',color:'#0f665e',fontWeight:'700'},primary:{backgroundColor:'#0f766e'},thumbs:{flexDirection:'row',flexWrap:'wrap',gap:14},thumb:{width:90,height:115,borderRadius:8},preview:{width:'100%',height:380,backgroundColor:'#e2e9e6'},row:{flexDirection:'row',flexWrap:'wrap',gap:8},warning:{backgroundColor:'#fff0df',color:'#85512b',padding:12,borderRadius:10},center:{flex:1,alignItems:'center',justifyContent:'center',gap:20}});
+const s=StyleSheet.create({safe:{flex:1,backgroundColor:'#f4f7f5'},header:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:16},title:{fontSize:18,fontWeight:'800',color:'#153e36',marginVertical:10},steps:{color:'#47665d',paddingHorizontal:16,paddingBottom:12},page:{padding:20,gap:10},help:{fontSize:14,color:'#50665e',lineHeight:22},button:{padding:12,borderRadius:12,backgroundColor:'#dceae6',marginVertical:3},buttonText:{textAlign:'center',color:'#0f665e',fontWeight:'700'},primary:{backgroundColor:'#0f766e'},thumbs:{flexDirection:'row',flexWrap:'wrap',gap:14},thumb:{width:90,height:115,borderRadius:8},preview:{width:'100%',height:380,backgroundColor:'#e2e9e6'},row:{flexDirection:'row',flexWrap:'wrap',gap:8},warning:{backgroundColor:'#fff0df',color:'#85512b',padding:12,borderRadius:10},center:{flex:1,alignItems:'center',justifyContent:'center',gap:20},autoBanner:{backgroundColor:'#e1f4ed',padding:12,borderRadius:12},autoTitle:{color:'#0f665e',fontWeight:'900'},autoHelp:{color:'#47665d',fontSize:12,marginTop:3},adjustToggle:{padding:12,borderRadius:12,backgroundColor:'#e7efec',flexDirection:'row',alignItems:'center',justifyContent:'space-between'},adjustTitle:{color:'#174a3c',fontWeight:'800'},adjustSummary:{color:'#687d77',fontSize:12,marginTop:2},adjustArrow:{color:'#0f766e',fontWeight:'900'},adjustPanel:{gap:7,padding:10,borderWidth:1,borderColor:'#dce7e3',borderRadius:12},adjustLabel:{fontSize:13,fontWeight:'800',color:'#50665e',marginTop:4}});

@@ -42,6 +42,14 @@ npm run build:apk
 
 AIは初期状態で無効です。APIキーをアプリへ埋め込まず、認証付きサーバーを用意して`.env`の`EXPO_PUBLIC_AI_FALLBACK_URL`へURLだけを設定します。信頼度75%未満のOCR結果だけが対象になり、AI利用後も確認画面を必ず通ります。
 
+## GitHub Actionsとリリース
+
+APK/IPAのビルドはプルリクエストや`main`へのマージでは自動実行されません。必要なときだけGitHubのActions画面から個別のビルドを手動実行できます。
+
+ダウンロード可能な配布物を作るには、Actions画面から **Publish downloadable mobile release** を実行し、`v1.0.0`のようなリリースタグを入力します。AndroidとiOSのビルド完了後、GitHub Releaseが作成され、`ReceiptLog.apk`と`ReceiptLog-unsigned.ipa`が添付されます。同じタグで再実行すると添付ファイルが置き換わります。
+
+IPAは未署名です。そのままApp Store経由でインストールすることはできず、別途署名または対応したサイドロード手順が必要です。
+
 ## 今後の改善
 
 1. 実レシートのテストデータ追加と抽出ルール改善
