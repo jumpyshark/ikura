@@ -35,10 +35,10 @@ test('d払い explicit amount without currency symbol',()=>{
  const [r]=parsePaymentText(['d払い','お支払い完了','店舗名 テスト商店','2026/09/10','支払金額 1,280']);
  assert.equal(r!.draft.amount,'1280'); assert.equal(r!.draft.paymentMethod,'d払い');
 });
-test('duplicate review: exact, nearby posting date, different amount, edit exclusion',()=>{
+test('duplicate review only flags an exact date, merchant, and amount match',()=>{
  const draft=parsePaymentText(['ご利用店名 ローソン横浜店','2026/09/10','ご利用金額 780円'])[0]!.draft;
  const saved=[{...draft,id:'1'},{...draft,id:'2',date:'2026-09-12'},{...draft,id:'3',amount:'781'}];
- assert.equal(findDuplicates(draft,saved)[0]!.level,'strong'); assert.equal(findDuplicates(draft,saved).length,2); assert.equal(findDuplicates(draft,saved,'1').length,1);
+ assert.equal(findDuplicates(draft,saved)[0]!.level,'strong'); assert.equal(findDuplicates(draft,saved).length,1); assert.equal(findDuplicates(draft,saved,'1').length,0);
 });
 test('detects additional payment providers correctly',()=>{
  assert.equal(detectPaymentProvider('au PAY 決済完了 500円'), 'au PAY');
