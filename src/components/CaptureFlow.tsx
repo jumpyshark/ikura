@@ -122,7 +122,7 @@ export function CaptureFlow({visible,onClose,onDiscard,onComplete,aiEnabled,onDi
   });
   return <Modal visible={visible} presentationStyle="fullScreen" animationType="slide" onRequestClose={()=>working?cancelWork():onClose()}><SafeAreaProvider style={{flex:1}}><SafeAreaView style={s.safe} edges={['top','bottom','left','right']}>
     <View style={s.header}><Text style={s.title}>{stage==='capture'?'レシートを撮影':stage==='review'?`画像確認：${index+1}／${photos.length}枚`:'文字を読み取り'}</Text><Button label="戻る" disabled={working} onPress={onClose}/></View>
-    <Text style={s.steps}>撮影 → 自動補正・読み取り → 画像と内容を確認 → 保存</Text>
+    <Text style={s.steps}>{stage==='capture'?'レシートを枠内に入れて撮影':stage==='review'?'自動補正済み · 必要なときだけ調整':'店名・日付・金額を抽出しています'}</Text>
     {stage==='capture'?<>{working?<View style={s.center}><ActivityIndicator/></View>:visible?<BatchCamera key={retakeId??'batch'} uris={retakeId?[]:photos.map(p=>p.originalUri)} limit={retakeId?1:LIMIT} onPhoto={addPhoto} onDone={read} onRemove={i=>setPhotos(old=>old.filter((_,at)=>at!==i))} onGallery={()=>Alert.alert('画像の種類','読み込む画像を選んでください。',[{text:'戻る',style:'cancel'},{text:'紙レシート',onPress:()=>pick('receipt')},{text:'決済画面',onPress:()=>pick('screenshot')}])}/>:null}</>:stage==='processing'?<View style={s.center}><ActivityIndicator size="large"/><Text>{progress}</Text><Text style={s.help}>画像を1枚ずつ処理しています。</Text><Button label="読み取りを中止して画像確認に戻る" onPress={cancelWork}/></View>:editingCrop&&photo?<View style={s.page}>
       <CropEditor photo={photo} onChange={crop=>update({...photo,crop,approved:false,previewUri:undefined})}/>
       <Button primary label="この範囲を適用" disabled={working} onPress={()=>render(photo)}/>
@@ -135,6 +135,7 @@ export function CaptureFlow({visible,onClose,onDiscard,onComplete,aiEnabled,onDi
         {photo.baseUri && photo.width && photo.height ? editingCrop ? <CropEditor key={photo.id+photo.rotation} photo={photo} onChange={crop=>update({...photo,crop,approved:false,previewUri:undefined})}/> : <Image source={{uri:original?photo.baseUri:photo.previewUri??photo.baseUri}} style={s.preview} resizeMode="contain"/> : <Image source={{uri:photo.originalUri}} style={s.preview} resizeMode="contain"/>}
         {working&&<ActivityIndicator/>}
         {!photo.baseUri && !working && <Button label="画像の準備を再試行" onPress={prepareCurrent}/>}
+        <Button primary label="この画像を使う" disabled={working||editingCrop||!photo.previewUri} onPress={read}/>
         {photo.baseUri && <>
           <Pressable accessibilityRole="button" style={s.adjustToggle} onPress={()=>setShowAdjustments(!showAdjustments)}><View><Text style={s.adjustTitle}>画像を調整</Text><Text style={s.adjustSummary}>切り取り・回転・フィルター</Text></View><Text style={s.adjustArrow}>{showAdjustments?'▲':'▼'}</Text></Pressable>
           {showAdjustments && <View style={s.adjustPanel}>
@@ -149,8 +150,7 @@ export function CaptureFlow({visible,onClose,onDiscard,onComplete,aiEnabled,onDi
         <Button primary label="この画像を読み取る" disabled={working||editingCrop||!photo.previewUri} onPress={read}/>
         <Button label="撮影・画像の追加に戻る" disabled={working} onPress={()=>setStage('capture')}/>
       </>:null}
-      <Text style={s.help}>戻っても、この操作中は画像を保持します。アプリを終了すると未保存の作業は失われます。</Text>
-      <Button label="未保存の画像をすべて破棄" disabled={working} onPress={discard}/>
+      <Pressable disabled={working} onPress={discard}><Text style={s.discard}>この撮影を破棄</Text></Pressable>
     </ScrollView>}
   </SafeAreaView></SafeAreaProvider></Modal>;
 }
