@@ -46,19 +46,9 @@ AIは初期状態で無効です。APIキーをアプリへ埋め込まず、認
 
 APK/IPAのビルドはプルリクエストや`main`へのマージでは自動実行されません。必要なときだけGitHubのActions画面から個別のビルドを手動実行できます。
 
-ダウンロード可能な配布物は、Actions画面から次のいずれかを手動実行して作成できます。
-
-- **Publish Android release (APK only)**: Androidだけをビルドし、`ReceiptLog.apk`を公開します。
-- **Publish iOS release (unsigned IPA only)**: iOSだけをビルドし、`ReceiptLog-unsigned.ipa`を公開します。
-- **Publish mobile release (APK + IPA)**: 両方をビルドしてまとめて公開します。
-
-各ワークフローで`v1.0.0`のようなリリースタグを入力します。APKとIPAを別々に実行するときも同じタグを指定すれば、同じGitHub Releaseへ両方のファイルを追加できます。同じプラットフォームを同じタグで再実行すると、その添付ファイルだけが置き換わります。
+ダウンロード可能な配布物を作るには、Actions画面から **Publish downloadable mobile release** を実行し、`v1.0.0`のようなリリースタグを入力します。AndroidとiOSのビルド完了後、GitHub Releaseが作成され、`ReceiptLog.apk`と`ReceiptLog-unsigned.ipa`が添付されます。同じタグで再実行すると添付ファイルが置き換わります。
 
 IPAは未署名です。そのままApp Store経由でインストールすることはできず、別途署名または対応したサイドロード手順が必要です。
-
-### Androidビルドの警告を確認する
-
-`Deprecated Gradle features were used in this build, making it incompatible with Gradle 10`は、Gradle 9が依存プラグインの将来の非互換性を知らせる警告であり、それ自体はビルド失敗の原因ではありません。Androidワークフローは`--warning-mode all`と`--stacktrace`を使用し、実際に失敗した処理と個別の非推奨警告をログへ出力します。失敗時にはActions実行画面のArtifactsから`android-gradle-build-log`をダウンロードできます。ログ内で最初に現れる`FAILURE:`または`What went wrong:`の内容を確認してください。
 
 ## 今後の改善
 
