@@ -48,6 +48,7 @@ export function CaptureFlow({visible,onClose,onDiscard,onComplete,aiEnabled,onDi
     const added=picked.assets.slice(0,LIMIT-photos.length).map(a=>newPhoto(a.uri,source));
     if(!added.length) return;
     setPhotos(old=>[...old,...added]);
+    setStage('review');
   });
   useEffect(()=>{
     if(!visible)return;
@@ -58,7 +59,10 @@ export function CaptureFlow({visible,onClose,onDiscard,onComplete,aiEnabled,onDi
   const addPhoto=(uri:string)=>{
     const next=newPhoto(uri,'receipt');
     if(retakeId){setPhotos(old=>old.map(p=>p.id===retakeId?next:p));setRetakeId(undefined);setStage('review');}
-    else setPhotos(old=>old.length<LIMIT?[...old,next]:old);
+    else {
+      setPhotos(old=>old.length<LIMIT?[...old,next]:old);
+      setStage('review');
+    }
   };
   const prepareCurrent=()=>void work(async token=>{
     if(!photo) return;

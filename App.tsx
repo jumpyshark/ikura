@@ -62,6 +62,8 @@ export default function App() {
   };
   const cancelCapture = () => { if(saving)return;Alert.alert('未保存の内容を破棄しますか？','画像と入力内容が消えます。保存済みの支出は残ります。',[{text:'戻る',style:'cancel'},{text:'破棄する',style:'destructive',onPress:()=>{ocrRequest.current++;busy.current=false;setProcessing(false);resetForm();}}]); };
   const chooseImage = (camera:boolean) => {if(!busy.current) {setCaptureEntry(imageUri?'review':camera?'camera':'gallery');setCaptureVisible(true);}};
+  const openCamera = () => { if(!busy.current) { setCaptureEntry('camera'); setCaptureVisible(true); } };
+  const openGallery = () => { if(!busy.current) { setCaptureEntry('gallery'); setCaptureVisible(true); } };
   const acceptImages=(rows:ReviewedCandidate[],signature:string)=>{
     if(signature===batchSignature.current) {setCaptureVisible(false);return;}
     const accept=()=>{const first=rows[0];if(!first)return;batchSignature.current=signature;batchCounts.current={saved:0,skipped:0};setDraft(first.draft);setImageUri(first.imageUri);setCandidateKind(first.kind);setPending(rows.slice(1));setEditingId(undefined);setCaptureVisible(false);setTab('add');};
@@ -104,6 +106,16 @@ export default function App() {
       {tab === 'stats' && <Stats month={month} setMonth={setMonth} total={total} categories={categories} />}
       {tab === 'settings' && <Settings settings={settings} update={updateSettings} newCategory={newCategory} setNewCategory={setNewCategory} />}
     </ScrollView>
+    <View style={s.fabContainer} pointerEvents="box-none">
+      <Pressable accessibilityLabel="カメラで撮影" style={s.fabButton} onPress={openCamera}>
+        <Text style={s.fabIcon}>📷</Text>
+        <Text style={s.fabLabel}>カメラ</Text>
+      </Pressable>
+      <Pressable accessibilityLabel="写真を選択" style={[s.fabButton, s.fabGallery]} onPress={openGallery}>
+        <Text style={s.fabIcon}>🖼️</Text>
+        <Text style={s.fabLabel}>写真</Text>
+      </Pressable>
+    </View>
     <SafeAreaView style={s.navSafe} edges={['bottom']}><View style={s.nav}>{([['home','ホーム'],['add','追加'],['history','履歴'],['stats','分析'],['settings','設定']] as [Tab,string][]).map(([key,label]) => <Pressable key={key} style={s.navItem} onPress={() => { if(busy.current) return; setTab(key); }}><Text style={[s.navText, tab === key && s.navActive]}>{label}</Text></Pressable>)}</View></SafeAreaView>
     <CaptureFlow key={captureSession} visible={captureVisible} entry={captureEntry} focusUri={imageUri} onClose={()=>setCaptureVisible(false)} onDiscard={resetForm} onComplete={acceptImages} aiEnabled={settings.aiFallbackEnabled} onDirty={setCaptureDirty}/>
   </SafeAreaView></SafeAreaProvider>;
@@ -119,19 +131,109 @@ function Home({ month, setMonth, total, budget, count, categories, recent, setTa
 
 function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,submit,reset,cancel}:{draft:ExpenseDraft;setDraft:(d:ExpenseDraft)=>void;imageUri?:string;processing:boolean;editing:boolean;categories:string[];chooseImage:(c:boolean)=>void;submit:()=>void;reset:()=>void;cancel:()=>void}) {
   const set=(key:keyof ExpenseDraft,value:string)=>setDraft({...draft,[key]:value});
-  return <><Title text={editing?'支出を編集':imageUri?'画像と読み取り結果を確認':'支出を追加'} /><Text style={s.help}>画像と内容を確認・修正してから「確認して保存」を押してください。</Text>
-    {!editing && <View style={s.quickRow}><Quick label={imageUri?'画像を調整・撮り直す':'写真を撮る'} onPress={()=>chooseImage(true)}/>{!imageUri&&<Quick label="画像を選択" onPress={()=>chooseImage(false)} secondary/>}</View>}
+  const [showOcrDump, setShowOcrDump] = useState(false);
+  const isComplete = Boolean(draft.storeName.trim() && draft.date.trim() && draft.amount.trim());
+
+  return <View style={s.addContainer}>
+    <Title text={editing?'支出を編集':imageUri?'支出の確認':'支出を追加'} />
+
+    {!editing && !imageUri && <View style={s.quickRow}>
+      <Quick label="写真を撮る" onPress={()=>chooseImage(true)}/>
+      <Quick label="画像を選択" onPress={()=>chooseImage(false)} secondary/>
+    </View>}
+
     {Platform.OS === 'web' && <Text style={s.warning}>ブラウザー版では手入力できます。画像の読み取りはスマートフォン版で利用してください。</Text>}
-    {imageUri && <Image source={{uri:imageUri}} style={s.preview} resizeMode="contain"/>}{processing && <><ActivityIndicator style={s.loader} color="#0f766e" size="large"/><Pressable style={s.secondaryButton} onPress={cancel}><Text style={s.secondaryText}>OCRをキャンセル</Text></Pressable></>}
-    {!processing && <View style={s.card}>{draft.rawText ? <Text style={[s.confidence,(!draft.storeName||!draft.date||!draft.amount)&&s.low]}>{!draft.storeName||!draft.date||!draft.amount?'未入力の項目があります。確認してください。':'画像と照らし合わせて内容を確認してください。'}</Text>:null}
+
+    {imageUri && <View style={s.imageCard}>
+      <Image source={{uri:imageUri}} style={s.compactPreview} resizeMode="cover"/>
+      <View style={s.imageCardInfo}>
+        <Text style={s.imageCardTitle}>{draft.storeName || '店舗名未入力'}</Text>
+        <Text style={s.imageCardAmount}>{draft.amount ? yen(Number(draft.amount)) : '金額未入力'}</Text>
+        {!editing && <Pressable style={s.compactButton} onPress={()=>chooseImage(true)}>
+          <Text style={s.compactButtonText}>📷 画像を調整・撮り直す</Text>
+        </Pressable>}
+      </View>
+    </View>}
+
+    {processing && <View style={s.card}>
+      <ActivityIndicator style={s.loader} color="#0f766e" size="large"/>
+      <Pressable style={s.secondaryButton} onPress={cancel}>
+        <Text style={s.secondaryText}>OCRをキャンセル</Text>
+      </Pressable>
+    </View>}
+
+    {!processing && <View style={s.card}>
+      {draft.rawText ? <View style={[s.confidenceBanner, !isComplete && s.lowBanner]}>
+        <Text style={[s.confidenceText, !isComplete && s.lowText]}>
+          {!isComplete ? '⚠️ 未入力の項目があります。確認・選択してください。' : '✨ 自動読み取り完了。内容を確認して保存してください。'}
+        </Text>
+      </View> : null}
+
       {draft.warnings?.map(w=><Text key={w} style={s.warning}>{w}</Text>)}
-      <Field label="店舗名" value={draft.storeName} onChange={v=>set('storeName',v)} required/><Field label="日付（例：2026-09-10）" value={draft.date} onChange={v=>set('date',v)} required/><Field label="金額（円）" value={draft.amount} onChange={v=>set('amount',v)} numeric required/><Field label="支払方法" value={draft.paymentMethod} onChange={v=>set('paymentMethod',v)}/><Field label="メモ" value={draft.note} onChange={v=>set('note',v)}/>
-      {!draft.amount&&draft.amountCandidates?.length?<><Text style={s.label}>金額候補</Text><View style={s.chips}>{draft.amountCandidates.map(a=><Chip key={a} label={yen(Number(a))} active={false} onPress={()=>set('amount',a)}/>)}</View></>:null}
-      <Text style={s.label}>カテゴリ</Text><View style={s.chips}>{categories.map(c=><Chip key={c} label={c} active={draft.category===c} onPress={()=>set('category',c)}/>)}</View>
-      <Text style={s.label}>画像の種類</Text><View style={s.quickRow}><Chip label="紙レシート" active={draft.sourceType==='receipt'} onPress={()=>setDraft({...draft,sourceType:'receipt'})}/><Chip label="決済画面" active={draft.sourceType==='payment_screenshot'} onPress={()=>setDraft({...draft,sourceType:'payment_screenshot'})}/></View>
-      {imageUri&&!editing?<Text style={s.help}>画像は確認用です。保存されるのは支出情報です。</Text>:null}
-      <Pressable style={s.primary} onPress={submit}><Text style={s.primaryText}>確認して保存</Text></Pressable><Pressable onPress={editing?reset:cancel}><Text style={s.cancel}>{editing?'編集をキャンセル':'入力をキャンセル'}</Text></Pressable></View>}
-  </>;
+
+      <Field label="店舗名" value={draft.storeName} onChange={v=>set('storeName',v)} required/>
+
+      <View style={s.fieldRow}>
+        <View style={s.halfField}>
+          <Field label="日付" value={draft.date} onChange={v=>set('date',v)} required/>
+        </View>
+        <View style={s.halfField}>
+          <Field label="金額 (円)" value={draft.amount} onChange={v=>set('amount',v)} numeric required/>
+        </View>
+      </View>
+
+      {draft.amountCandidates && draft.amountCandidates.length > 0 && <View style={{marginBottom: 10}}>
+        <Text style={s.subLabel}>金額候補（タップで選択）</Text>
+        <View style={s.chips}>
+          {draft.amountCandidates.map(a=>(
+            <Chip key={a} label={yen(Number(a))} active={draft.amount===a} onPress={()=>set('amount',a)}/>
+          ))}
+        </View>
+      </View>}
+
+      <View style={s.fieldRow}>
+        <View style={s.halfField}>
+          <Field label="支払方法" value={draft.paymentMethod} onChange={v=>set('paymentMethod',v)}/>
+        </View>
+        <View style={s.halfField}>
+          <Field label="メモ" value={draft.note} onChange={v=>set('note',v)}/>
+        </View>
+      </View>
+
+      <Text style={s.label}>カテゴリ</Text>
+      <View style={s.chips}>
+        {categories.map(c=><Chip key={c} label={c} active={draft.category===c} onPress={()=>set('category',c)}/>)}
+      </View>
+
+      <View style={s.inlineRow}>
+        <Text style={[s.label, {marginBottom: 0}]}>種類: </Text>
+        <Chip label="紙レシート" active={draft.sourceType==='receipt'} onPress={()=>setDraft({...draft,sourceType:'receipt'})}/>
+        <Chip label="決済画面" active={draft.sourceType==='payment_screenshot'} onPress={()=>setDraft({...draft,sourceType:'payment_screenshot'})}/>
+      </View>
+
+      <Pressable style={s.primary} onPress={submit}>
+        <Text style={s.primaryText}>確認して保存</Text>
+      </Pressable>
+
+      <Pressable onPress={editing?reset:cancel}>
+        <Text style={s.cancel}>{editing?'編集をキャンセル':'入力をキャンセル'}</Text>
+      </Pressable>
+
+      <View style={s.debugSection}>
+        <Pressable style={s.debugHeader} onPress={() => setShowOcrDump(!showOcrDump)}>
+          <Text style={s.debugHeaderText}>🔍 OCR ダンプ (デバッグ情報) {showOcrDump ? '▲' : '▼'}</Text>
+        </Pressable>
+        {showOcrDump && <View style={s.debugContent}>
+          <Text style={s.debugMeta}>信頼度: {Math.round((draft.confidence ?? 0) * 100)}% | 種別: {draft.sourceType}</Text>
+          {draft.amountCandidates?.length ? <Text style={s.debugMeta}>金額候補: {draft.amountCandidates.join(', ')}</Text> : null}
+          <Text style={s.debugTextLabel}>抽出テキスト (Raw Text):</Text>
+          <ScrollView style={s.debugScroll} nestedScrollEnabled>
+            <Text style={s.debugText}>{draft.rawText || '(テキストは抽出されていません)'}</Text>
+          </ScrollView>
+        </View>}
+      </View>
+    </View>}
+  </View>;
 }
 
 function History({month,setMonth,all,setAll,query,setQuery,filter,setFilter,categories,items,edit,remove}:{month:string;setMonth:(m:string)=>void;all:boolean;setAll:(v:boolean)=>void;query:string;setQuery:(q:string)=>void;filter:string;setFilter:(f:string)=>void;categories:string[];items:Expense[];edit:(e:Expense)=>void;remove:(id:string)=>void}) {
@@ -157,5 +259,34 @@ function Bar({name,value,max}:{name:string;value:number;max:number}) { return <V
 function Empty({text}:{text:string}) { return <Text style={s.empty}>{text}</Text>; }
 
 const s=StyleSheet.create({
-  safe:{flex:1,backgroundColor:'#f4f7f5'},header:{paddingHorizontal:20,paddingTop:14,paddingBottom:10,flexDirection:'row',justifyContent:'space-between',alignItems:'center',borderBottomWidth:1,borderBottomColor:'#e2e9e6'},logo:{fontSize:23,fontWeight:'900',color:'#153e36'},headerMonth:{color:'#60746f',fontWeight:'700'},page:{width:'100%',maxWidth:720,alignSelf:'center',padding:20,paddingBottom:30},navSafe:{backgroundColor:'white'},nav:{flexDirection:'row',backgroundColor:'white',borderTopWidth:1,borderTopColor:'#dbe5e1'},navItem:{flex:1,alignItems:'center',paddingVertical:13},navText:{fontSize:12,color:'#71807d',fontWeight:'700'},navActive:{color:'#0f766e'},eyebrow:{color:'#0f766e',fontWeight:'800',letterSpacing:1,marginBottom:8},hero:{backgroundColor:'#123b35',borderRadius:22,padding:23},heroAmount:{color:'white',fontSize:38,fontWeight:'900'},heroMeta:{color:'#b8ddd5',marginTop:5},progress:{height:8,backgroundColor:'#315952',borderRadius:9,marginTop:18,overflow:'hidden'},progressFill:{height:'100%',backgroundColor:'#f38b56'},quickRow:{flexDirection:'row',gap:10,marginVertical:14},quick:{flex:1,backgroundColor:'#0f766e',padding:15,borderRadius:13,alignItems:'center'},quickSecondary:{backgroundColor:'#dceae6'},quickText:{color:'white',fontWeight:'800'},quickTextSecondary:{color:'#0f665e'},title:{fontSize:21,fontWeight:'900',color:'#193b35',marginTop:18,marginBottom:12},help:{color:'#60746f',lineHeight:21},warning:{backgroundColor:'#fff3e8',color:'#945027',padding:12,borderRadius:10,marginBottom:10},preview:{height:220,width:'100%',backgroundColor:'#e4ebe8',borderRadius:15},loader:{margin:30},card:{backgroundColor:'white',padding:17,borderRadius:18,marginBottom:15},field:{marginBottom:12},label:{fontSize:13,fontWeight:'800',color:'#50635f',marginBottom:5},input:{borderWidth:1,borderColor:'#d7e2de',backgroundColor:'#f7f9f8',borderRadius:10,padding:12,fontSize:16},chips:{flexDirection:'row',flexWrap:'wrap',gap:7,marginBottom:12},chip:{borderWidth:1,borderColor:'#b9cbc6',paddingVertical:9,paddingHorizontal:12,borderRadius:20},chipActive:{backgroundColor:'#d9f1ea',borderColor:'#0f766e'},chipText:{color:'#63736f'},chipTextActive:{color:'#0f665e',fontWeight:'800'},primary:{backgroundColor:'#eb6b35',padding:16,borderRadius:12,alignItems:'center',marginTop:14},primaryText:{color:'white',fontWeight:'900'},cancel:{textAlign:'center',color:'#71807d',marginTop:15},confidence:{backgroundColor:'#e1f4ed',color:'#0f665e',padding:10,borderRadius:9,marginBottom:13,fontWeight:'800'},low:{backgroundColor:'#fff0df',color:'#9a4e19'},monthNav:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:15},monthArrow:{fontSize:38,color:'#0f766e',paddingHorizontal:18},monthTitle:{fontSize:22,fontWeight:'900',color:'#193b35'},search:{backgroundColor:'white',borderWidth:1,borderColor:'#d7e2de',borderRadius:12,padding:13,fontSize:15},expense:{backgroundColor:'white',padding:15,borderRadius:13,marginBottom:9,flexDirection:'row',alignItems:'center'},expenseStore:{fontWeight:'900',fontSize:16,color:'#1d342f'},expenseMeta:{color:'#71807d',fontSize:12,marginTop:4},amountSide:{alignItems:'flex-end',marginLeft:10},expenseAmount:{fontWeight:'900',fontSize:17,color:'#173f38'},delete:{color:'#b54832',fontWeight:'700',fontSize:12,marginTop:6},statTotal:{fontWeight:'900',fontSize:24,color:'#173f38',marginBottom:18},barRow:{marginBottom:14},barLabels:{flexDirection:'row',justifyContent:'space-between'},barName:{fontWeight:'800',color:'#38514c'},barValue:{fontWeight:'800',color:'#38514c'},barTrack:{height:9,backgroundColor:'#e0e8e5',borderRadius:8,marginTop:7,overflow:'hidden'},barFill:{height:'100%',backgroundColor:'#20a486',borderRadius:8},empty:{color:'#71807d',textAlign:'center',paddingVertical:25},inline:{flexDirection:'row',gap:8,alignItems:'center'},smallButton:{backgroundColor:'#0f766e',padding:13,borderRadius:10},secondaryButton:{backgroundColor:'#dceae6',padding:13,borderRadius:10,alignItems:'center'},secondaryText:{color:'#0f665e',fontWeight:'900'},settingRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:12,paddingVertical:12,borderBottomWidth:1,borderBottomColor:'#edf1ef'},settingTitle:{fontWeight:'800',color:'#28443e'},settingHelp:{fontSize:12,color:'#71807d',marginTop:4,lineHeight:17}
+  safe:{flex:1,backgroundColor:'#f4f7f5'},header:{paddingHorizontal:20,paddingTop:14,paddingBottom:10,flexDirection:'row',justifyContent:'space-between',alignItems:'center',borderBottomWidth:1,borderBottomColor:'#e2e9e6'},logo:{fontSize:23,fontWeight:'900',color:'#153e36'},headerMonth:{color:'#60746f',fontWeight:'700'},page:{width:'100%',maxWidth:720,alignSelf:'center',padding:20,paddingBottom:30},navSafe:{backgroundColor:'white'},nav:{flexDirection:'row',backgroundColor:'white',borderTopWidth:1,borderTopColor:'#dbe5e1'},navItem:{flex:1,alignItems:'center',paddingVertical:13},navText:{fontSize:12,color:'#71807d',fontWeight:'700'},navActive:{color:'#0f766e'},eyebrow:{color:'#0f766e',fontWeight:'800',letterSpacing:1,marginBottom:8},hero:{backgroundColor:'#123b35',borderRadius:22,padding:23},heroAmount:{color:'white',fontSize:38,fontWeight:'900'},heroMeta:{color:'#b8ddd5',marginTop:5},progress:{height:8,backgroundColor:'#315952',borderRadius:9,marginTop:18,overflow:'hidden'},progressFill:{height:'100%',backgroundColor:'#f38b56'},quickRow:{flexDirection:'row',gap:10,marginVertical:14},quick:{flex:1,backgroundColor:'#0f766e',padding:15,borderRadius:13,alignItems:'center'},quickSecondary:{backgroundColor:'#dceae6'},quickText:{color:'white',fontWeight:'800'},quickTextSecondary:{color:'#0f665e'},title:{fontSize:21,fontWeight:'900',color:'#193b35',marginTop:18,marginBottom:12},help:{color:'#60746f',lineHeight:21},warning:{backgroundColor:'#fff3e8',color:'#945027',padding:12,borderRadius:10,marginBottom:10},preview:{height:220,width:'100%',backgroundColor:'#e4ebe8',borderRadius:15},loader:{margin:30},card:{backgroundColor:'white',padding:17,borderRadius:18,marginBottom:15},field:{marginBottom:12},label:{fontSize:13,fontWeight:'800',color:'#50635f',marginBottom:5},input:{borderWidth:1,borderColor:'#d7e2de',backgroundColor:'#f7f9f8',borderRadius:10,padding:12,fontSize:16},chips:{flexDirection:'row',flexWrap:'wrap',gap:7,marginBottom:12},chip:{borderWidth:1,borderColor:'#b9cbc6',paddingVertical:9,paddingHorizontal:12,borderRadius:20},chipActive:{backgroundColor:'#d9f1ea',borderColor:'#0f766e'},chipText:{color:'#63736f'},chipTextActive:{color:'#0f665e',fontWeight:'800'},primary:{backgroundColor:'#eb6b35',padding:16,borderRadius:12,alignItems:'center',marginTop:14},primaryText:{color:'white',fontWeight:'900'},cancel:{textAlign:'center',color:'#71807d',marginTop:15},confidence:{backgroundColor:'#e1f4ed',color:'#0f665e',padding:10,borderRadius:9,marginBottom:13,fontWeight:'800'},low:{backgroundColor:'#fff0df',color:'#9a4e19'},monthNav:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:15},monthArrow:{fontSize:38,color:'#0f766e',paddingHorizontal:18},monthTitle:{fontSize:22,fontWeight:'900',color:'#193b35'},search:{backgroundColor:'white',borderWidth:1,borderColor:'#d7e2de',borderRadius:12,padding:13,fontSize:15},expense:{backgroundColor:'white',padding:15,borderRadius:13,marginBottom:9,flexDirection:'row',alignItems:'center'},expenseStore:{fontWeight:'900',fontSize:16,color:'#1d342f'},expenseMeta:{color:'#71807d',fontSize:12,marginTop:4},amountSide:{alignItems:'flex-end',marginLeft:10},expenseAmount:{fontWeight:'900',fontSize:17,color:'#173f38'},delete:{color:'#b54832',fontWeight:'700',fontSize:12,marginTop:6},statTotal:{fontWeight:'900',fontSize:24,color:'#173f38',marginBottom:18},barRow:{marginBottom:14},barLabels:{flexDirection:'row',justifyContent:'space-between'},barName:{fontWeight:'800',color:'#38514c'},barValue:{fontWeight:'800',color:'#38514c'},barTrack:{height:9,backgroundColor:'#e0e8e5',borderRadius:8,marginTop:7,overflow:'hidden'},barFill:{height:'100%',backgroundColor:'#20a486',borderRadius:8},empty:{color:'#71807d',textAlign:'center',paddingVertical:25},inline:{flexDirection:'row',gap:8,alignItems:'center'},smallButton:{backgroundColor:'#0f766e',padding:13,borderRadius:10},secondaryButton:{backgroundColor:'#dceae6',padding:13,borderRadius:10,alignItems:'center'},secondaryText:{color:'#0f665e',fontWeight:'900'},settingRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:12,paddingVertical:12,borderBottomWidth:1,borderBottomColor:'#edf1ef'},settingTitle:{fontWeight:'800',color:'#28443e'},settingHelp:{fontSize:12,color:'#71807d',marginTop:4,lineHeight:17},
+  fabContainer:{position:'absolute',bottom:75,right:16,flexDirection:'column',gap:10,alignItems:'flex-end',zIndex:999},
+  fabButton:{flexDirection:'row',alignItems:'center',backgroundColor:'#0f766e',paddingVertical:10,paddingHorizontal:16,borderRadius:25,elevation:5,shadowColor:'#000',shadowOffset:{width:0,height:2},shadowOpacity:0.25,shadowRadius:3.84,gap:6},
+  fabGallery:{backgroundColor:'#2563eb'},
+  fabIcon:{fontSize:18},
+  fabLabel:{color:'white',fontWeight:'800',fontSize:13},
+  addContainer:{gap:12},
+  imageCard:{flexDirection:'row',backgroundColor:'white',padding:12,borderRadius:16,alignItems:'center',gap:14,marginBottom:10,borderWidth:1,borderColor:'#e2e9e6'},
+  compactPreview:{width:80,height:100,borderRadius:10,backgroundColor:'#e4ebe8'},
+  imageCardInfo:{flex:1,justifyContent:'center'},
+  imageCardTitle:{fontSize:17,fontWeight:'800',color:'#193b35'},
+  imageCardAmount:{fontSize:22,fontWeight:'900',color:'#0f766e',marginVertical:4},
+  compactButton:{backgroundColor:'#dceae6',paddingVertical:6,paddingHorizontal:10,borderRadius:8,alignSelf:'flex-start',marginTop:4},
+  compactButtonText:{color:'#0f665e',fontSize:12,fontWeight:'800'},
+  confidenceBanner:{backgroundColor:'#e1f4ed',padding:10,borderRadius:10,marginBottom:12},
+  confidenceText:{color:'#0f665e',fontWeight:'800',fontSize:13},
+  lowBanner:{backgroundColor:'#fff0df'},
+  lowText:{color:'#9a4e19'},
+  fieldRow:{flexDirection:'row',gap:10},
+  halfField:{flex:1},
+  subLabel:{fontSize:12,fontWeight:'700',color:'#60746f',marginBottom:4},
+  inlineRow:{flexDirection:'row',alignItems:'center',gap:8,marginVertical:8},
+  debugSection:{marginTop:20,borderTopWidth:1,borderTopColor:'#e2e9e6',paddingTop:12},
+  debugHeader:{backgroundColor:'#f0f4f2',padding:10,borderRadius:8,alignItems:'center'},
+  debugHeaderText:{color:'#475569',fontWeight:'800',fontSize:12},
+  debugContent:{backgroundColor:'#f8fafc',padding:12,borderRadius:8,marginTop:8,borderWidth:1,borderColor:'#e2e8f0'},
+  debugMeta:{fontSize:12,fontWeight:'700',color:'#64748b',marginBottom:4},
+  debugTextLabel:{fontSize:12,fontWeight:'800',color:'#334155',marginTop:6,marginBottom:4},
+  debugScroll:{maxHeight:140,backgroundColor:'#ffffff',padding:8,borderRadius:6,borderWidth:1,borderColor:'#cbd5e1'},
+  debugText:{fontFamily:Platform.OS==='ios'?'Courier':'monospace',fontSize:11,color:'#1e293b',lineHeight:16}
 });
