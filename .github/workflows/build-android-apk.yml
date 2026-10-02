@@ -25,6 +25,9 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+
       - name: Install JavaScript dependencies
         run: npm ci
 
@@ -43,9 +46,20 @@ jobs:
         run: chmod +x android/gradlew
 
       - name: Build Android Release APK
+        shell: bash
         run: |
+          set -o pipefail
           cd android
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease --no-daemon --stacktrace --warning-mode all 2>&1 | tee ../gradle-build.log
+
+      - name: Upload Gradle log when the build fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-gradle-build-log
+          path: gradle-build.log
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Package APK artifact
         run: |
