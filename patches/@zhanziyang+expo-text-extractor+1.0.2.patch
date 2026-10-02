@@ -1,5 +1,5 @@
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt b/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
-index a676ed9..3701f88 100644
+index a676ed9..0b2771a 100644
 --- a/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
 +++ b/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
 @@ -73,6 +73,15 @@ class ExpoTextExtractorModule : Module() {
@@ -63,6 +63,53 @@ index a676ed9..3701f88 100644
        }
      }
 
+@@ -121,29 +162,23 @@ class ExpoTextExtractorModule : Module() {
+     AsyncFunction("getSupportedLanguages") { _: String?, promise: Promise ->
+       promise.resolve(availableScripts)
+     }
+-  }
+-
+-  /**
+-   * Clean up recognizers when the module is destroyed.
+-   */
+-  override fun onDestroy() {
+-    // Close all initialized recognizers to free resources
+-    try {
+-      latinRecognizer.close()
+-    } catch (_: Exception) {}
+-    try {
+-      chineseRecognizer.close()
+-    } catch (_: Exception) {}
+-    try {
+-      devanagariRecognizer.close()
+-    } catch (_: Exception) {}
+-    try {
+-      japaneseRecognizer.close()
+-    } catch (_: Exception) {}
+-    try {
+-      koreanRecognizer.close()
+-    } catch (_: Exception) {}
+
+-    super.onDestroy()
++    OnDestroy {
++      try {
++        latinRecognizer.close()
++      } catch (_: Exception) {}
++      try {
++        chineseRecognizer.close()
++      } catch (_: Exception) {}
++      try {
++        devanagariRecognizer.close()
++      } catch (_: Exception) {}
++      try {
++        japaneseRecognizer.close()
++      } catch (_: Exception) {}
++      try {
++        koreanRecognizer.close()
++      } catch (_: Exception) {}
++    }
+   }
+ }
 diff --git a/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ReceiptImageReview.kt b/node_modules/@zhanziyang/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ReceiptImageReview.kt
 new file mode 100644
 index 0000000..fa146dd
