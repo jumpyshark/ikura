@@ -98,7 +98,12 @@ export default function App() {
 
   if (!ready) return <SafeAreaProvider><SafeAreaView style={s.safe}><ActivityIndicator /><Text>保存済みデータを読み込み中…</Text></SafeAreaView></SafeAreaProvider>;
   return <SafeAreaProvider><SafeAreaView style={s.safe} edges={['top','left','right']}><StatusBar style="dark" />
-    <View style={s.header}><Text style={s.logo}>ReceiptLog</Text></View>
+    <View style={s.header}>
+      <Text style={s.logo}>ReceiptLog</Text>
+      <View style={s.headerBadge}>
+        <Text style={s.headerBadgeText}>家計簿</Text>
+      </View>
+    </View>
     <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
       {tab === 'home' && <Home month={month} setMonth={setMonth} total={total} budget={settings.monthlyBudget} count={monthly.length} categories={categories} recent={expenses.slice(0,3)} setTab={setTab} />}
       {tab === 'add' && <Add draft={draft} setDraft={setDraft} imageUri={imageUri} processing={processing || saving} editing={Boolean(editingId)} categories={settings.categories} chooseImage={chooseImage} submit={()=>void submit()} reset={cancelCapture} cancel={cancelCapture} pendingCount={pending.length} skip={!processing&&!saving&&imageUri&&!editingId?()=>advance():undefined} />}
@@ -121,10 +126,25 @@ export default function App() {
 
 function Home({ month, setMonth, total, budget, count, categories, recent, setTab }: { month:string; setMonth:(m:string)=>void; total:number; budget:number; count:number; categories:{name:string;value:number}[]; recent:Expense[]; setTab:(t:Tab)=>void }) {
   const left = budget - total, ratio = budget ? Math.min(total / budget, 1) : 0;
-  return <><MonthNav month={month} setMonth={setMonth}/><Text style={s.eyebrow}>{monthLabel(month)}の支出</Text><View style={s.hero}><Text style={s.heroAmount}>{yen(total)}</Text><Text style={s.heroMeta}>{count}件 · 予算残り {yen(left)}</Text><View style={s.progress}><View style={[s.progressFill,{width:`${ratio*100}%`}]} /></View></View>
+  return <><MonthNav month={month} setMonth={setMonth}/><Text style={s.eyebrow}>{monthLabel(month)}の概要</Text><View style={s.hero}><Text style={s.heroTag}>今月の支出合計</Text><Text style={s.heroAmount}>{yen(total)}</Text><Text style={s.heroMeta}>{count}件の取引 · 予算残り {yen(left)}</Text><View style={s.progress}><View style={[s.progressFill,{width:`${Math.min(ratio*100, 100)}%`}]} /></View></View>
     <View style={s.quickRow}><Quick label="手入力で追加" onPress={()=>setTab('add')} secondary/><Quick label="履歴を見る" onPress={()=>setTab('history')} secondary/></View>
-    <Title text="カテゴリ別" />{categories.length ? categories.slice(0,5).map((x)=><Bar key={x.name} {...x} max={total}/>) : <Empty text="この月の支出はまだありません。" />}
-    <Title text="最近保存した支出" />{recent.length?recent.map(item=><View key={item.id} style={s.expense}><View style={{flex:1}}><Text style={s.expenseStore}>{item.storeName}</Text><Text style={s.expenseMeta}>{item.date} · {item.category}</Text></View><Text style={s.expenseAmount}>{yen(Number(item.amount))}</Text></View>):<Empty text="保存した支出はありません。"/>}</>;
+    <Title text="カテゴリ別" />
+    <View style={s.card}>
+      {categories.length ? categories.slice(0,5).map((x)=><Bar key={x.name} {...x} max={total}/>) : <Empty text="この月の支出はまだありません。" />}
+    </View>
+    <Title text="最近保存した支出" />
+    {recent.length ? recent.map(item=>(
+      <View key={item.id} style={s.expense}>
+        <View style={{flex:1}}>
+          <Text style={s.expenseStore}>{item.storeName}</Text>
+          <View style={s.badgeRow}>
+            <Text style={s.expenseMeta}>{item.date}</Text>
+            <View style={s.categoryBadge}><Text style={s.categoryBadgeText}>{item.category}</Text></View>
+          </View>
+        </View>
+        <Text style={s.expenseAmount}>{yen(Number(item.amount))}</Text>
+      </View>
+    )) : <Empty text="保存した支出はありません。"/>}</>;
 }
 
 function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,submit,reset,cancel,pendingCount,skip}:{draft:ExpenseDraft;setDraft:(d:ExpenseDraft)=>void;imageUri?:string;processing:boolean;editing:boolean;categories:string[];chooseImage:(c:boolean)=>void;submit:()=>void;reset:()=>void;cancel:()=>void;pendingCount:number;skip?:()=>void}) {
@@ -233,64 +253,282 @@ function Add({draft,setDraft,imageUri,processing,editing,categories,chooseImage,
 }
 
 function History({month,setMonth,all,setAll,query,setQuery,filter,setFilter,categories,items,edit,remove}:{month:string;setMonth:(m:string)=>void;all:boolean;setAll:(v:boolean)=>void;query:string;setQuery:(q:string)=>void;filter:string;setFilter:(f:string)=>void;categories:string[];items:Expense[];edit:(e:Expense)=>void;remove:(id:string)=>void}) {
-  return <><View style={s.quickRow}><Chip label={`全期間 (${items.length}件)`} active={all} onPress={()=>setAll(true)}/><Chip label="月別表示" active={!all} onPress={()=>setAll(false)}/></View>{!all&&<MonthNav month={month} setMonth={setMonth}/>}<TextInput style={s.search} placeholder="店舗・メモ・支払方法を検索" value={query} onChangeText={setQuery}/><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}><Chip label="すべて" active={filter==='すべて'} onPress={()=>setFilter('すべて')}/>{categories.map(c=><Chip key={c} label={c} active={filter===c} onPress={()=>setFilter(c)}/>)}</ScrollView>
-    {items.length?items.map(item=><View key={item.id} style={s.expense}><Pressable style={{flex:1}} onPress={()=>edit(item)}><Text style={s.expenseStore}>{item.storeName}</Text><Text style={s.expenseMeta}>{item.date} · {item.category} · {item.paymentMethod}</Text></Pressable><View style={s.amountSide}><Text style={s.expenseAmount}>{yen(Number(item.amount))}</Text><Pressable onPress={()=>remove(item.id)}><Text style={s.delete}>削除</Text></Pressable></View></View>):<Empty text={all?'保存した支出はありません。':'この月の支出はありません。'}/>}</>;
+  return <>
+    <View style={s.quickRow}>
+      <Chip label={`全期間 (${items.length}件)`} active={all} onPress={()=>setAll(true)}/>
+      <Chip label="月別表示" active={!all} onPress={()=>setAll(false)}/>
+    </View>
+    {!all && <MonthNav month={month} setMonth={setMonth}/>}
+    <TextInput style={s.search} placeholder="🔍 店舗・メモ・支払方法を検索" placeholderTextColor="#8C9B94" value={query} onChangeText={setQuery}/>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipStrip}>
+      <Chip label="すべて" active={filter==='すべて'} onPress={()=>setFilter('すべて')}/>
+      {categories.map(c=><Chip key={c} label={c} active={filter===c} onPress={()=>setFilter(c)}/>)}
+    </ScrollView>
+    {items.length ? items.map(item=>(
+      <View key={item.id} style={s.expense}>
+        <Pressable style={{flex:1}} onPress={()=>edit(item)}>
+          <Text style={s.expenseStore}>{item.storeName}</Text>
+          <View style={s.badgeRow}>
+            <Text style={s.expenseMeta}>{item.date} · {item.paymentMethod || '未設定'}</Text>
+            <View style={s.categoryBadge}><Text style={s.categoryBadgeText}>{item.category}</Text></View>
+          </View>
+        </Pressable>
+        <View style={s.amountSide}>
+          <Text style={s.expenseAmount}>{yen(Number(item.amount))}</Text>
+          <Pressable onPress={()=>remove(item.id)}>
+            <Text style={s.delete}>削除</Text>
+          </Pressable>
+        </View>
+      </View>
+    )) : <Empty text={all?'保存した支出はありません。':'この月の支出はありません。'}/>}
+  </>;
 }
 
-function Stats({month,setMonth,total,categories}:{month:string;setMonth:(m:string)=>void;total:number;categories:{name:string;value:number}[]}) { return <><MonthNav month={month} setMonth={setMonth}/><View style={s.card}><Text style={s.statTotal}>合計 {yen(total)}</Text>{categories.length?categories.map(x=><Bar key={x.name} {...x} max={total}/>):<Empty text="グラフに表示するデータがありません。"/>}</View></>; }
+function Stats({month,setMonth,total,categories}:{month:string;setMonth:(m:string)=>void;total:number;categories:{name:string;value:number}[]}) {
+  return <>
+    <MonthNav month={month} setMonth={setMonth}/>
+    <Text style={s.eyebrow}>{monthLabel(month)}の分析</Text>
+    <View style={s.card}>
+      <Text style={s.statLabel}>月間支出合計</Text>
+      <Text style={s.statTotal}>{yen(total)}</Text>
+      {categories.length ? (
+        <View style={{marginTop: 12}}>
+          {categories.map(x=><Bar key={x.name} {...x} max={total}/>)}
+        </View>
+      ) : <Empty text="表示するデータがありません。" />}
+    </View>
+  </>;
+}
 
 function Settings({settings,update,newCategory,setNewCategory}:{settings:AppSettings;update:(s:AppSettings)=>void;newCategory:string;setNewCategory:(v:string)=>void}) {
   const [budget,setBudget]=useState(String(settings.monthlyBudget));
   const saveBudget=()=>{const n=Number(budget);if(n>=0)update({...settings,monthlyBudget:n});};
   const add=()=>{const c=newCategory.trim();if(c&&!settings.categories.includes(c)){update({...settings,categories:[...settings.categories,c]});setNewCategory('');}};
-  return <><Title text="設定"/><View style={s.card}><Field label="月間予算 (円)" value={budget} onChange={setBudget} numeric/><Pressable style={s.secondaryButton} onPress={saveBudget}><Text style={s.secondaryText}>予算を保存</Text></Pressable></View><Title text="AI補助"/><View style={s.card}><View style={s.settingRow}><View style={{flex:1}}><Text style={s.settingTitle}>低信頼度の場合のみ利用</Text><Text style={s.settingHelp}>有効時も、結果は必ず保存前に確認します。サーバーURLの設定が必要です。</Text></View><Switch value={settings.aiFallbackEnabled} onValueChange={v=>update({...settings,aiFallbackEnabled:v})}/></View></View><Title text="カテゴリ管理"/><View style={s.card}><View style={s.inline}><TextInput style={[s.input,{flex:1}]} placeholder="新しいカテゴリ" value={newCategory} onChangeText={setNewCategory}/><Pressable style={s.smallButton} onPress={add}><Text style={s.primaryText}>追加</Text></Pressable></View>{settings.categories.map(c=><View key={c} style={s.settingRow}><Text>{c}</Text>{c!=='その他'&&<Pressable onPress={()=>update({...settings,categories:settings.categories.filter(x=>x!==c)})}><Text style={s.delete}>削除</Text></Pressable>}</View>)}</View></>;
+  return <>
+    <Title text="設定"/>
+    <View style={s.card}>
+      <Field label="月間予算 (円)" value={budget} onChange={setBudget} numeric/>
+      <Pressable style={s.secondaryButton} onPress={saveBudget}>
+        <Text style={s.secondaryText}>予算を保存</Text>
+      </Pressable>
+    </View>
+
+    <Title text="AI補助機能"/>
+    <View style={s.card}>
+      <View style={s.settingRow}>
+        <View style={{flex:1}}>
+          <Text style={s.settingTitle}>低信頼度の場合のみ利用</Text>
+          <Text style={s.settingHelp}>有効時も、結果は必ず保存前に確認します。サーバーURLの設定が必要です。</Text>
+        </View>
+        <Switch
+          trackColor={{ false: '#D2DCD6', true: colors.primary }}
+          thumbColor={settings.aiFallbackEnabled ? colors.accent : '#FFFFFF'}
+          value={settings.aiFallbackEnabled}
+          onValueChange={v=>update({...settings,aiFallbackEnabled:v})}
+        />
+      </View>
+    </View>
+
+    <Title text="カテゴリ管理"/>
+    <View style={s.card}>
+      <View style={[s.inline, {marginBottom: 12}]}>
+        <TextInput style={[s.input,{flex:1}]} placeholder="新しいカテゴリ名" placeholderTextColor="#8C9B94" value={newCategory} onChangeText={setNewCategory}/>
+        <Pressable style={s.smallButton} onPress={add}>
+          <Text style={s.primaryText}>追加</Text>
+        </Pressable>
+      </View>
+      {settings.categories.map(c=>(
+        <View key={c} style={s.settingRow}>
+          <Text style={{fontWeight: '700', color: colors.text}}>{c}</Text>
+          {c!=='その他' && (
+            <Pressable onPress={()=>update({...settings,categories:settings.categories.filter(x=>x!==c)})}>
+              <Text style={s.delete}>削除</Text>
+            </Pressable>
+          )}
+        </View>
+      ))}
+    </View>
+  </>;
 }
 
 function MonthNav({month,setMonth}:{month:string;setMonth:(m:string)=>void}) { return <View style={s.monthNav}><Pressable onPress={()=>setMonth(shiftMonth(month,-1))}><Text style={s.monthArrow}>‹</Text></Pressable><Text style={s.monthTitle}>{monthLabel(month)}</Text><Pressable onPress={()=>setMonth(shiftMonth(month,1))}><Text style={s.monthArrow}>›</Text></Pressable></View>; }
-function Field({label,value,onChange,numeric=false,required=false,attention=false}:{label:string;value:string;onChange:(v:string)=>void;numeric?:boolean;required?:boolean;attention?:boolean}) { return <View style={s.field}><Text style={s.label}>{label}{required&&!value.trim()?'（入力が必要です）':''}{attention?'（要確認）':''}</Text><TextInput accessibilityLabel={label} style={[s.input,(required&&!value.trim()||attention)&&s.inputAttention]} value={value} onChangeText={onChange} keyboardType={numeric?'numeric':'default'}/></View>; }
+function Field({label,value,onChange,numeric=false,required=false,attention=false}:{label:string;value:string;onChange:(v:string)=>void;numeric?:boolean;required?:boolean;attention?:boolean}) { return <View style={s.field}><Text style={s.label}>{label}{required&&!value.trim()?'（入力が必要です）':''}{attention?'（要確認）':''}</Text><TextInput accessibilityLabel={label} style={[s.input,(required&&!value.trim()||attention)&&s.inputAttention]} value={value} onChangeText={onChange} keyboardType={numeric?'numeric':'default'} placeholderTextColor="#8C9B94"/></View>; }
 function Title({text}:{text:string}) { return <Text style={s.title}>{text}</Text>; }
 function Quick({label,onPress,secondary=false}:{label:string;onPress:()=>void;secondary?:boolean}) { return <Pressable style={[s.quick,secondary&&s.quickSecondary]} onPress={onPress}><Text style={[s.quickText,secondary&&s.quickTextSecondary]}>{label}</Text></Pressable>; }
 function Chip({label,active,onPress}:{label:string;active:boolean;onPress:()=>void}) { return <Pressable style={[s.chip,active&&s.chipActive]} onPress={onPress}><Text style={[s.chipText,active&&s.chipTextActive]}>{label}</Text></Pressable>; }
-function Bar({name,value,max}:{name:string;value:number;max:number}) { return <View style={s.barRow}><View style={s.barLabels}><Text style={s.barName}>{name}</Text><Text style={s.barValue}>{yen(value)}</Text></View><View style={s.barTrack}><View style={[s.barFill,{width:`${max?Math.max(value/max*100,4):0}%`}]} /></View></View>; }
+function Bar({name,value,max}:{name:string;value:number;max:number}) {
+  const pct = max ? Math.round((value / max) * 100) : 0;
+  return (
+    <View style={s.barRow}>
+      <View style={s.barLabels}>
+        <View style={s.barNameContainer}>
+          <Text style={s.barName}>{name}</Text>
+          <Text style={s.barPct}>{pct}%</Text>
+        </View>
+        <Text style={s.barValue}>{yen(value)}</Text>
+      </View>
+      <View style={s.barTrack}>
+        <View style={[s.barFill,{width:`${max?Math.max(value/max*100,4):0}%`}]} />
+      </View>
+    </View>
+  );
+}
 function Empty({text}:{text:string}) { return <Text style={s.empty}>{text}</Text>; }
 function FabIcon({kind}:{kind:'camera'|'photo'}) { return kind==='camera' ? <View style={s.cameraIcon}><View style={s.cameraTop}/><View style={s.cameraLens}/></View> : <View style={s.photoIcon}><View style={s.photoSun}/><View style={s.photoMountainLeft}/><View style={s.photoMountainRight}/></View>; }
 
-const s=StyleSheet.create({
-  safe:{flex:1,backgroundColor:'#f6f8f7'},header:{paddingHorizontal:20,paddingTop:16,paddingBottom:12,flexDirection:'row',alignItems:'center'},logo:{fontSize:21,fontWeight:'900',color:'#153e36'},page:{width:'100%',maxWidth:720,alignSelf:'center',padding:20,paddingBottom:110},navSafe:{backgroundColor:'white'},nav:{flexDirection:'row',backgroundColor:'white',borderTopWidth:1,borderTopColor:'#e7ecea'},navItem:{flex:1,alignItems:'center',paddingTop:13,paddingBottom:10,gap:5},navText:{fontSize:12,color:'#86918e',fontWeight:'700'},navActive:{color:'#0f766e'},navDot:{width:4,height:4,borderRadius:2,backgroundColor:'#0f766e'},eyebrow:{color:'#0f766e',fontWeight:'800',letterSpacing:1,marginBottom:8},hero:{backgroundColor:'#123b35',borderRadius:22,padding:23},heroAmount:{color:'white',fontSize:38,fontWeight:'900'},heroMeta:{color:'#b8ddd5',marginTop:5},progress:{height:8,backgroundColor:'#315952',borderRadius:9,marginTop:18,overflow:'hidden'},progressFill:{height:'100%',backgroundColor:'#f38b56'},quickRow:{flexDirection:'row',gap:10,marginVertical:14},quick:{flex:1,backgroundColor:'#0f766e',padding:14,borderRadius:13,alignItems:'center'},quickSecondary:{backgroundColor:'#e8efed'},quickText:{color:'white',fontWeight:'800'},quickTextSecondary:{color:'#31564e'},title:{fontSize:21,fontWeight:'900',color:'#193b35',marginTop:18,marginBottom:12},help:{color:'#60746f',lineHeight:21},warning:{backgroundColor:'#fff3e8',color:'#945027',padding:12,borderRadius:10,marginBottom:10},preview:{height:220,width:'100%',backgroundColor:'#e4ebe8',borderRadius:15},loader:{margin:30},card:{backgroundColor:'white',padding:17,borderRadius:18,marginBottom:15},field:{marginBottom:12},label:{fontSize:13,fontWeight:'800',color:'#50635f',marginBottom:5},input:{borderWidth:1,borderColor:'#d7e2de',backgroundColor:'#fafcfb',borderRadius:10,padding:12,fontSize:16},chips:{flexDirection:'row',flexWrap:'wrap',gap:7,marginBottom:12},chipStrip:{gap:7,paddingBottom:12},chip:{borderWidth:1,borderColor:'#c9d5d1',paddingVertical:8,paddingHorizontal:12,borderRadius:20},chipActive:{backgroundColor:'#d9f1ea',borderColor:'#0f766e'},chipText:{color:'#63736f'},chipTextActive:{color:'#0f665e',fontWeight:'800'},primary:{backgroundColor:'#eb6b35',padding:16,borderRadius:12,alignItems:'center',marginTop:8},primaryText:{color:'white',fontWeight:'900'},cancel:{textAlign:'center',color:'#71807d',marginTop:15},confidence:{backgroundColor:'#e1f4ed',color:'#0f665e',padding:10,borderRadius:9,marginBottom:13,fontWeight:'800'},low:{backgroundColor:'#fff0df',color:'#9a4e19'},monthNav:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:15},monthArrow:{fontSize:38,color:'#0f766e',paddingHorizontal:18},monthTitle:{fontSize:22,fontWeight:'900',color:'#193b35'},search:{backgroundColor:'white',borderWidth:1,borderColor:'#d7e2de',borderRadius:12,padding:13,fontSize:15},expense:{backgroundColor:'white',padding:15,borderRadius:13,marginBottom:9,flexDirection:'row',alignItems:'center'},expenseStore:{fontWeight:'900',fontSize:16,color:'#1d342f'},expenseMeta:{color:'#71807d',fontSize:12,marginTop:4},amountSide:{alignItems:'flex-end',marginLeft:10},expenseAmount:{fontWeight:'900',fontSize:17,color:'#173f38'},delete:{color:'#b54832',fontWeight:'700',fontSize:12,marginTop:6},statTotal:{fontWeight:'900',fontSize:24,color:'#173f38',marginBottom:18},barRow:{marginBottom:14},barLabels:{flexDirection:'row',justifyContent:'space-between'},barName:{fontWeight:'800',color:'#38514c'},barValue:{fontWeight:'800',color:'#38514c'},barTrack:{height:9,backgroundColor:'#e0e8e5',borderRadius:8,marginTop:7,overflow:'hidden'},barFill:{height:'100%',backgroundColor:'#20a486',borderRadius:8},empty:{color:'#71807d',textAlign:'center',paddingVertical:25},inline:{flexDirection:'row',gap:8,alignItems:'center'},smallButton:{backgroundColor:'#0f766e',padding:13,borderRadius:10},secondaryButton:{backgroundColor:'#dceae6',padding:13,borderRadius:10,alignItems:'center'},secondaryText:{color:'#0f665e',fontWeight:'900'},settingRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:12,paddingVertical:12,borderBottomWidth:1,borderBottomColor:'#edf1ef'},settingTitle:{fontWeight:'800',color:'#28443e'},settingHelp:{fontSize:12,color:'#71807d',marginTop:4,lineHeight:17},
-  fabContainer:{position:'absolute',bottom:96,right:18,gap:12,zIndex:999},
-  fabButton:{width:56,height:56,alignItems:'center',justifyContent:'center',backgroundColor:'#0f766e',borderRadius:28,elevation:6,shadowColor:'#123b35',shadowOffset:{width:0,height:3},shadowOpacity:.22,shadowRadius:5},
-  fabGallery:{backgroundColor:'white',borderWidth:1,borderColor:'#d8e4e0'},
-  cameraIcon:{width:25,height:18,borderWidth:2,borderColor:'white',borderRadius:4,alignItems:'center',justifyContent:'center'},cameraTop:{position:'absolute',top:-6,width:11,height:6,borderTopLeftRadius:3,borderTopRightRadius:3,backgroundColor:'white'},cameraLens:{width:8,height:8,borderRadius:4,borderWidth:2,borderColor:'white'},
-  photoIcon:{width:25,height:21,borderWidth:2,borderColor:'#0f766e',borderRadius:3,overflow:'hidden'},photoSun:{position:'absolute',width:5,height:5,borderRadius:3,backgroundColor:'#0f766e',right:4,top:4},photoMountainLeft:{position:'absolute',width:17,height:17,borderWidth:2,borderColor:'#0f766e',transform:[{rotate:'45deg'}],left:-3,top:12},photoMountainRight:{position:'absolute',width:12,height:12,borderWidth:2,borderColor:'#0f766e',transform:[{rotate:'45deg'}],right:-2,top:13},
-  addContainer:{gap:12},
-  addHeading:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},addTitle:{fontSize:24,fontWeight:'900',color:'#193b35'},batchNote:{fontSize:12,color:'#71807d',marginTop:3},skipButton:{paddingVertical:9,paddingHorizontal:11},skipText:{fontSize:13,color:'#68716e',fontWeight:'700'},formNotice:{color:'#9a572e',fontSize:12,lineHeight:18,marginBottom:6},inputAttention:{borderColor:'#d94d3f',borderWidth:2,backgroundColor:'#fffafa'},
-  imageCard:{flexDirection:'row',backgroundColor:'white',padding:12,borderRadius:16,alignItems:'center',gap:14,marginBottom:10,borderWidth:1,borderColor:'#e2e9e6'},
-  compactPreview:{width:80,height:100,borderRadius:10,backgroundColor:'#e4ebe8'},
-  imageCardInfo:{flex:1,justifyContent:'center'},
-  imageCardTitle:{fontSize:17,fontWeight:'800',color:'#193b35'},
-  imageCardAmount:{fontSize:22,fontWeight:'900',color:'#0f766e',marginVertical:4},
-  compactButton:{backgroundColor:'#dceae6',paddingVertical:6,paddingHorizontal:10,borderRadius:8,alignSelf:'flex-start',marginTop:4},
-  compactButtonText:{color:'#0f665e',fontSize:12,fontWeight:'800'},
-  confidenceBanner:{backgroundColor:'#e1f4ed',padding:10,borderRadius:10,marginBottom:12},
-  confidenceText:{color:'#0f665e',fontWeight:'800',fontSize:13},
-  lowBanner:{backgroundColor:'#fff0df'},
-  lowText:{color:'#9a4e19'},
-  fieldRow:{flexDirection:'row',gap:10},
-  halfField:{flex:1},
-  subLabel:{fontSize:12,fontWeight:'700',color:'#60746f',marginBottom:4},
-  inlineRow:{flexDirection:'row',alignItems:'center',gap:8,marginVertical:8},
-  primaryDisabled:{opacity:.55},
-  disclosure:{marginTop:12,paddingVertical:11,paddingHorizontal:12,borderRadius:10,backgroundColor:'#f0f4f2',flexDirection:'row',alignItems:'center',justifyContent:'space-between'},
-  disclosureTitle:{fontSize:13,fontWeight:'800',color:'#36554e'},
-  disclosureSummary:{fontSize:11,color:'#71807d',marginTop:2},
-  disclosureArrow:{fontSize:11,color:'#0f766e',fontWeight:'900'},
-  optionalPanel:{paddingTop:12},
-  debugSection:{marginTop:20,borderTopWidth:1,borderTopColor:'#e2e9e6',paddingTop:12},
-  debugHeader:{backgroundColor:'#f0f4f2',padding:10,borderRadius:8,alignItems:'center'},
-  debugHeaderText:{color:'#475569',fontWeight:'800',fontSize:12},
-  debugContent:{backgroundColor:'#f8fafc',padding:12,borderRadius:8,marginTop:8,borderWidth:1,borderColor:'#e2e8f0'},
-  debugMeta:{fontSize:12,fontWeight:'700',color:'#64748b',marginBottom:4},
-  debugTextLabel:{fontSize:12,fontWeight:'800',color:'#334155',marginTop:6,marginBottom:4},
-  debugScroll:{maxHeight:140,backgroundColor:'#ffffff',padding:8,borderRadius:6,borderWidth:1,borderColor:'#cbd5e1'},
-  debugText:{fontFamily:Platform.OS==='ios'?'Courier':'monospace',fontSize:11,color:'#1e293b',lineHeight:16}
+const colors = {
+  bg: '#F2F5F3',
+  cardBg: '#FFFFFF',
+  cardBorder: '#E1E8E4',
+  heroBg: '#2A3A34',
+  heroText: '#FFFFFF',
+  heroSub: '#B8C9C1',
+  heroProgressTrack: '#3D5049',
+  heroProgressFill: '#E07A5F',
+  primary: '#2A3A34',
+  accent: '#E07A5F',
+  text: '#1A2521',
+  textMuted: '#6D7C75',
+  softGreenBg: '#E8F0EC',
+  softGreenText: '#234438',
+  chipActiveBg: '#2A3A34',
+  chipActiveText: '#FFFFFF',
+  chipInactiveBg: '#FFFFFF',
+  chipInactiveBorder: '#D2DCD6',
+  chipInactiveText: '#4A5B53',
+  barTrack: '#E6EEE9',
+  barFill: '#507C6C',
+  warningBg: '#FFF4ED',
+  warningText: '#B8502E',
+  navBg: '#FFFFFF',
+  navBorder: '#E2E8E4',
+  navActive: '#2A3A34',
+  navInactive: '#8C9B94',
+  fabCamera: '#2A3A34',
+  fabGallery: '#FFFFFF'
+};
+
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: colors.bg },
+  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  logo: { fontSize: 22, fontWeight: '900', color: colors.text, letterSpacing: -0.5 },
+  headerBadge: { backgroundColor: colors.softGreenBg, paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.cardBorder },
+  headerBadgeText: { fontSize: 12, fontWeight: '800', color: colors.softGreenText },
+  heroTag: { color: colors.heroSub, fontSize: 13, fontWeight: '700', marginBottom: 2 },
+  page: { width: '100%', maxWidth: 720, alignSelf: 'center', padding: 20, paddingBottom: 110 },
+  navSafe: { backgroundColor: colors.navBg },
+  nav: { flexDirection: 'row', backgroundColor: colors.navBg, borderTopWidth: 1, borderTopColor: colors.navBorder },
+  navItem: { flex: 1, alignItems: 'center', paddingTop: 13, paddingBottom: 10, gap: 5 },
+  navText: { fontSize: 12, color: colors.navInactive, fontWeight: '700' },
+  navActive: { color: colors.navActive },
+  navDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: colors.navActive },
+  eyebrow: { color: colors.accent, fontWeight: '800', letterSpacing: 0.8, fontSize: 13, marginBottom: 8 },
+  hero: { backgroundColor: colors.heroBg, borderRadius: 24, padding: 24, borderWidth: 1, borderColor: colors.cardBorder, shadowColor: '#1A2521', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
+  heroAmount: { color: colors.heroText, fontSize: 38, fontWeight: '900', letterSpacing: -0.5 },
+  heroMeta: { color: colors.heroSub, marginTop: 6, fontSize: 14, fontWeight: '600' },
+  progress: { height: 10, backgroundColor: colors.heroProgressTrack, borderRadius: 10, marginTop: 18, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: colors.heroProgressFill, borderRadius: 10 },
+  quickRow: { flexDirection: 'row', gap: 10, marginVertical: 14 },
+  quick: { flex: 1, backgroundColor: colors.primary, padding: 14, borderRadius: 16, alignItems: 'center' },
+  quickSecondary: { backgroundColor: colors.softGreenBg, borderWidth: 1, borderColor: colors.cardBorder },
+  quickText: { color: colors.heroText, fontWeight: '800', fontSize: 14 },
+  quickTextSecondary: { color: colors.softGreenText, fontWeight: '800', fontSize: 14 },
+  title: { fontSize: 20, fontWeight: '900', color: colors.text, marginTop: 22, marginBottom: 12, letterSpacing: -0.3 },
+  help: { color: colors.textMuted, lineHeight: 21 },
+  warning: { backgroundColor: colors.warningBg, color: colors.warningText, padding: 12, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: '#F5D7C8' },
+  preview: { height: 220, width: '100%', backgroundColor: colors.softGreenBg, borderRadius: 16 },
+  loader: { margin: 30 },
+  card: { backgroundColor: colors.cardBg, padding: 18, borderRadius: 20, marginBottom: 15, borderWidth: 1, borderColor: colors.cardBorder, shadowColor: '#1A2521', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 1 },
+  field: { marginBottom: 12 },
+  label: { fontSize: 13, fontWeight: '800', color: colors.textMuted, marginBottom: 6 },
+  input: { borderWidth: 1, borderColor: colors.cardBorder, backgroundColor: colors.bg, borderRadius: 12, padding: 13, fontSize: 16, color: colors.text },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  chipStrip: { gap: 8, paddingBottom: 12 },
+  chip: { borderWidth: 1, borderColor: colors.chipInactiveBorder, backgroundColor: colors.chipInactiveBg, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20 },
+  chipActive: { backgroundColor: colors.chipActiveBg, borderColor: colors.chipActiveBg },
+  chipText: { color: colors.chipInactiveText, fontSize: 13, fontWeight: '600' },
+  chipTextActive: { color: colors.chipActiveText, fontWeight: '800' },
+  primary: { backgroundColor: colors.accent, padding: 16, borderRadius: 16, alignItems: 'center', marginTop: 8 },
+  primaryText: { color: 'white', fontWeight: '900', fontSize: 15 },
+  cancel: { textAlign: 'center', color: colors.textMuted, marginTop: 15, fontWeight: '700' },
+  confidence: { backgroundColor: colors.softGreenBg, color: colors.softGreenText, padding: 10, borderRadius: 10, marginBottom: 13, fontWeight: '800' },
+  low: { backgroundColor: colors.warningBg, color: colors.warningText },
+  monthNav: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, backgroundColor: colors.cardBg, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, borderColor: colors.cardBorder },
+  monthArrow: { fontSize: 28, color: colors.primary, paddingHorizontal: 12, fontWeight: '800' },
+  monthTitle: { fontSize: 18, fontWeight: '900', color: colors.text },
+  search: { backgroundColor: colors.cardBg, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 14, padding: 13, fontSize: 15, color: colors.text, marginBottom: 12 },
+  expense: { backgroundColor: colors.cardBg, padding: 16, borderRadius: 16, marginBottom: 10, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: colors.cardBorder },
+  expenseStore: { fontWeight: '900', fontSize: 16, color: colors.text },
+  expenseMeta: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
+  amountSide: { alignItems: 'flex-end', marginLeft: 10 },
+  expenseAmount: { fontWeight: '900', fontSize: 17, color: colors.text },
+  delete: { color: colors.accent, fontWeight: '700', fontSize: 12, marginTop: 6 },
+  statLabel: { fontSize: 13, fontWeight: '700', color: colors.textMuted, marginBottom: 4 },
+  statTotal: { fontWeight: '900', fontSize: 28, color: colors.text, marginBottom: 12 },
+  barRow: { marginBottom: 14 },
+  barLabels: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  barNameContainer: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  barName: { fontWeight: '800', color: colors.text, fontSize: 14 },
+  barPct: { fontSize: 11, fontWeight: '700', color: colors.textMuted, backgroundColor: colors.softGreenBg, paddingVertical: 1, paddingHorizontal: 6, borderRadius: 8 },
+  badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  categoryBadge: { backgroundColor: colors.softGreenBg, paddingVertical: 2, paddingHorizontal: 8, borderRadius: 10 },
+  categoryBadgeText: { color: colors.softGreenText, fontSize: 11, fontWeight: '700' },
+  barValue: { fontWeight: '800', color: colors.text, fontSize: 14 },
+  barTrack: { height: 10, backgroundColor: colors.barTrack, borderRadius: 10, overflow: 'hidden' },
+  barFill: { height: '100%', backgroundColor: colors.barFill, borderRadius: 10 },
+  empty: { color: colors.textMuted, textAlign: 'center', paddingVertical: 25 },
+  inline: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  smallButton: { backgroundColor: colors.primary, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12 },
+  secondaryButton: { backgroundColor: colors.softGreenBg, padding: 13, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.cardBorder },
+  secondaryText: { color: colors.softGreenText, fontWeight: '900' },
+  settingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.cardBorder },
+  settingTitle: { fontWeight: '800', color: colors.text },
+  settingHelp: { fontSize: 12, color: colors.textMuted, marginTop: 4, lineHeight: 17 },
+  fabContainer: { position: 'absolute', bottom: 96, right: 18, gap: 12, zIndex: 999 },
+  fabButton: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fabCamera, borderRadius: 28, elevation: 6, shadowColor: '#1A2521', shadowOffset: { width: 0, height: 3 }, shadowOpacity: .22, shadowRadius: 5 },
+  fabGallery: { backgroundColor: colors.fabGallery, borderWidth: 1, borderColor: colors.cardBorder },
+  cameraIcon: { width: 25, height: 18, borderWidth: 2, borderColor: 'white', borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
+  cameraTop: { position: 'absolute', top: -6, width: 11, height: 6, borderTopLeftRadius: 3, borderTopRightRadius: 3, backgroundColor: 'white' },
+  cameraLens: { width: 8, height: 8, borderRadius: 4, borderWidth: 2, borderColor: 'white' },
+  photoIcon: { width: 25, height: 21, borderWidth: 2, borderColor: colors.primary, borderRadius: 3, overflow: 'hidden' },
+  photoSun: { position: 'absolute', width: 5, height: 5, borderRadius: 3, backgroundColor: colors.primary, right: 4, top: 4 },
+  photoMountainLeft: { position: 'absolute', width: 17, height: 17, borderWidth: 2, borderColor: colors.primary, transform: [{ rotate: '45deg' }], left: -3, top: 12 },
+  photoMountainRight: { position: 'absolute', width: 12, height: 12, borderWidth: 2, borderColor: colors.primary, transform: [{ rotate: '45deg' }], right: -2, top: 13 },
+  addContainer: { gap: 12 },
+  addHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  addTitle: { fontSize: 24, fontWeight: '900', color: colors.text },
+  batchNote: { fontSize: 12, color: colors.textMuted, marginTop: 3 },
+  skipButton: { paddingVertical: 9, paddingHorizontal: 11 },
+  skipText: { fontSize: 13, color: colors.textMuted, fontWeight: '700' },
+  formNotice: { color: colors.warningText, fontSize: 12, lineHeight: 18, marginBottom: 6 },
+  inputAttention: { borderColor: colors.accent, borderWidth: 2, backgroundColor: colors.warningBg },
+  imageCard: { flexDirection: 'row', backgroundColor: colors.cardBg, padding: 12, borderRadius: 18, alignItems: 'center', gap: 14, marginBottom: 10, borderWidth: 1, borderColor: colors.cardBorder },
+  compactPreview: { width: 80, height: 100, borderRadius: 12, backgroundColor: colors.softGreenBg },
+  imageCardInfo: { flex: 1, justifyContent: 'center' },
+  imageCardTitle: { fontSize: 17, fontWeight: '800', color: colors.text },
+  imageCardAmount: { fontSize: 22, fontWeight: '900', color: colors.primary, marginVertical: 4 },
+  compactButton: { backgroundColor: colors.softGreenBg, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, alignSelf: 'flex-start', marginTop: 4, borderWidth: 1, borderColor: colors.cardBorder },
+  compactButtonText: { color: colors.softGreenText, fontSize: 12, fontWeight: '800' },
+  confidenceBanner: { backgroundColor: colors.softGreenBg, padding: 10, borderRadius: 10, marginBottom: 12 },
+  confidenceText: { color: colors.softGreenText, fontWeight: '800', fontSize: 13 },
+  lowBanner: { backgroundColor: colors.warningBg },
+  lowText: { color: colors.warningText },
+  fieldRow: { flexDirection: 'row', gap: 10 },
+  halfField: { flex: 1 },
+  subLabel: { fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 4 },
+  inlineRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 8 },
+  primaryDisabled: { opacity: .55 },
+  disclosure: { marginTop: 12, paddingVertical: 11, paddingHorizontal: 12, borderRadius: 12, backgroundColor: colors.softGreenBg, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: colors.cardBorder },
+  disclosureTitle: { fontSize: 13, fontWeight: '800', color: colors.softGreenText },
+  disclosureSummary: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+  disclosureArrow: { fontSize: 11, color: colors.primary, fontWeight: '900' },
+  optionalPanel: { paddingTop: 12 },
+  debugSection: { marginTop: 20, borderTopWidth: 1, borderTopColor: colors.cardBorder, paddingTop: 12 },
+  debugHeader: { backgroundColor: colors.softGreenBg, padding: 10, borderRadius: 10, alignItems: 'center' },
+  debugHeaderText: { color: colors.textMuted, fontWeight: '800', fontSize: 12 },
+  debugContent: { backgroundColor: colors.cardBg, padding: 12, borderRadius: 10, marginTop: 8, borderWidth: 1, borderColor: colors.cardBorder },
+  debugMeta: { fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 4 },
+  debugTextLabel: { fontSize: 12, fontWeight: '800', color: colors.text, marginTop: 6, marginBottom: 4 },
+  debugScroll: { maxHeight: 140, backgroundColor: colors.bg, padding: 8, borderRadius: 8, borderWidth: 1, borderColor: colors.cardBorder },
+  debugText: { fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', fontSize: 11, color: colors.text, lineHeight: 16 }
 });
